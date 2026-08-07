@@ -29,6 +29,48 @@ function Assert-Equal {
     }
 }
 
+function Get-RequiredXmlText {
+    param(
+        [Parameter(Mandatory = $true)][xml]$Xml,
+        [Parameter(Mandatory = $true)][string]$XPath,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $node = $Xml.SelectSingleNode($XPath)
+    if ($null -eq $node) {
+        throw "Static check failed: required XML node '$Name' was not found at XPath '$XPath'."
+    }
+
+    return $node.InnerText
+}
+
+function Assert-SingleProjectReference {
+    param(
+        [Parameter(Mandatory = $true)][xml]$Xml,
+        [Parameter(Mandatory = $true)][string]$ProjectFile,
+        [Parameter(Mandatory = $true)][string]$ExpectedProjectFile,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $references = @($Xml.SelectNodes('/Project/ItemGroup/ProjectReference'))
+    if ($references.Count -ne 1) {
+        throw "Static check failed: $Name must contain exactly one ProjectReference. Found $($references.Count)."
+    }
+
+    $include = $references[0].GetAttribute('Include')
+    if ([string]::IsNullOrWhiteSpace($include)) {
+        throw "Static check failed: $Name ProjectReference is missing the Include attribute."
+    }
+
+    $projectDirectory = Split-Path -Parent $ProjectFile
+    $actualProjectFile = [System.IO.Path]::GetFullPath((Join-Path $projectDirectory $include))
+    $expectedProjectFile = [System.IO.Path]::GetFullPath($ExpectedProjectFile)
+
+    if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($actualProjectFile, $expectedProjectFile)) {
+        throw "Static check failed: $Name ProjectReference. Expected '$expectedProjectFile', actual '$actualProjectFile'."
+    }
+}
+
 function Invoke-DotNet {
     param(
         [Parameter(Mandatory = $true)][string]$Description,
@@ -78,32 +120,30 @@ try {
     Write-Step 'Validate P01 project compatibility floor'
 
     [xml]$coreXml = Get-Content -LiteralPath $coreProject -Raw
-    $coreProperties = $coreXml.Project.PropertyGroup | Select-Object -First 1
-    Assert-Equal 'Core TargetFramework' $coreProperties.TargetFramework 'netstandard2.0'
-    Assert-Equal 'Core Nullable' $coreProperties.Nullable 'enable'
-    Assert-Equal 'Core ImplicitUsings' $coreProperties.ImplicitUsings 'disable'
-    Assert-Equal 'Core GenerateDocumentationFile' $coreProperties.GenerateDocumentationFile 'true'
-    Assert-Equal 'Core Deterministic' $coreProperties.Deterministic 'true'
+    Assert-Equal 'Core TargetFramework' (Get-RequiredXmlText $coreXml '/Project/PropertyGroup/TargetFramework' 'Core TargetFramework') 'netstandard2.0'
+    Assert-Equal 'Core Nullable' (Get-RequiredXmlText $coreXml '/Project/PropertyGroup/Nullable' 'Core Nullable') 'enable'
+    Assert-Equal 'Core ImplicitUsings' (Get-RequiredXmlText $coreXml '/Project/PropertyGroup/ImplicitUsings' 'Core ImplicitUsings') 'disable'
+    Assert-Equal 'Core GenerateDocumentationFile' (Get-RequiredXmlText $coreXml '/Project/PropertyGroup/GenerateDocumentationFile' 'Core GenerateDocumentationFile') 'true'
+    Assert-Equal 'Core Deterministic' (Get-RequiredXmlText $coreXml '/Project/PropertyGroup/Deterministic' 'Core Deterministic') 'true'
 
-    $corePackageReferences = @($coreXml.Project.ItemGroup.PackageReference | Where-Object { $null -ne $_ })
+    $corePackageReferences = @($coreXml.SelectNodes('/Project/ItemGroup/PackageReference'))
     if ($corePackageReferences.Count -ne 0) {
-        $packages = ($corePackageReferences | ForEach-Object { $_.Include }) -join ', '
+        $packages = ($corePackageReferences | ForEach-Object { $_.GetAttribute('Include') }) -join ', '
         throw "Core project must not have runtime PackageReference entries in P01. Found: $packages"
     }
 
     [xml]$testXml = Get-Content -LiteralPath $testProject -Raw
-    $testProperties = $testXml.Project.PropertyGroup | Select-Object -First 1
-    Assert-Equal 'Tests TargetFrameworks' $testProperties.TargetFrameworks 'net472;net8.0'
-    Assert-Equal 'Tests IsPackable' $testProperties.IsPackable 'false'
+    Assert-Equal 'Tests TargetFrameworks' (Get-RequiredXmlText $testXml '/Project/PropertyGroup/TargetFrameworks' 'Tests TargetFrameworks') 'net472;net8.0'
+    Assert-Equal 'Tests IsPackable' (Get-RequiredXmlText $testXml '/Project/PropertyGroup/IsPackable' 'Tests IsPackable') 'false'
+    Assert-SingleProjectReference $testXml $testProject $coreProject 'Tests project'
 
     [xml]$sampleXml = Get-Content -LiteralPath $sampleProject -Raw
-    $sampleProperties = $sampleXml.Project.PropertyGroup | Select-Object -First 1
-    Assert-Equal 'Sample TargetFramework' $sampleProperties.TargetFramework 'net472'
+    Assert-Equal 'Sample TargetFramework' (Get-RequiredXmlText $sampleXml '/Project/PropertyGroup/TargetFramework' 'Sample TargetFramework') 'net472'
+    Assert-SingleProjectReference $sampleXml $sampleProject $coreProject 'Sample project'
 
     [xml]$propsXml = Get-Content -LiteralPath $directoryBuildProps -Raw
-    $props = $propsXml.Project.PropertyGroup | Select-Object -First 1
-    Assert-Equal 'Language version' $props.LangVersion '8.0'
-    Assert-Equal 'Deterministic build default' $props.Deterministic 'true'
+    Assert-Equal 'Language version' (Get-RequiredXmlText $propsXml '/Project/PropertyGroup/LangVersion' 'Language version') '8.0'
+    Assert-Equal 'Deterministic build default' (Get-RequiredXmlText $propsXml '/Project/PropertyGroup/Deterministic' 'Deterministic build default') 'true'
 
     $solutionText = Get-Content -LiteralPath $solution -Raw
     foreach ($projectPath in @(

@@ -6,7 +6,11 @@ The library intentionally keeps transaction lifecycle synchronous (`Begin`, `Com
 
 ## Status
 
-The project is currently preparing the `1.0.0-preview.1` package line. Stable `1.0.0` is gated by the full P10 prerelease verification checklist and the repository license decision.
+The project is on the `1.0.0-preview.1` package line. P10 adds an executable prerelease closure gate that tests the produced nupkg in a real `.NET Framework 4.7.2` application after all unit, compatibility, SQL Server, Dapper, and RepoDb gates pass.
+
+Stable `1.0.0` remains blocked by the D7 repository license decision even after the technical P10 verification succeeds.
+
+See [P10 prerelease verification](docs/prerelease-verification.md) for the closure procedure and evidence mapping.
 
 ## Compatibility
 
@@ -103,8 +107,9 @@ CI verifies:
 - real `net472` tests on Windows;
 - SQL Server + Dapper + RepoDb integration on Windows;
 - NuGet packing with package validation enabled;
-- package contents include `lib/netstandard2.0/NetUnitOfWorkManager.dll`;
-- compiler warnings fail CI for source projects.
+- package contents include only the intended public payload;
+- compiler warnings fail CI for source projects;
+- the exact prerelease nupkg is restored, built, and executed by a separate real `net472` package consumer against SQL Server.
 
 The package produces portable symbols (`.snupkg`) and Source Link metadata using the .NET SDK build tooling.
 
@@ -112,6 +117,7 @@ The package produces portable symbols (`.snupkg`) and Source Link metadata using
 
 - [Usage](docs/usage.md)
 - [Compatibility and versioning](docs/compatibility.md)
+- [P10 prerelease verification](docs/prerelease-verification.md)
 - [Anti-patterns](docs/anti-patterns.md)
 - [Architecture](docs/netunitofworkmanager-design.md)
 - [Feature scope](docs/feature-scope.md)

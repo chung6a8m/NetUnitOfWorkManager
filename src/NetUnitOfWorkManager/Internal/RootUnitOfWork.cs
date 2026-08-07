@@ -24,7 +24,7 @@ namespace NetUnitOfWorkManager.Internal
         {
             _connection = connection;
             _transaction = transaction;
-            _db = new UnitOfWorkDbSession(connection, transaction);
+            _db = new UnitOfWorkDbSession(connection, transaction, EnsureDbSessionActive);
             _requestedIsolationLevel = requestedIsolationLevel;
             _state = UnitOfWorkLifecycleState.Active;
         }
@@ -193,6 +193,14 @@ namespace NetUnitOfWorkManager.Internal
                 primaryFailure,
                 cleanupFailures,
                 "Unit of Work finalization failed and resource cleanup also encountered errors.");
+        }
+
+        private void EnsureDbSessionActive()
+        {
+            lock (_lifecycleSync)
+            {
+                EnsureActive();
+            }
         }
 
         private void EnsureActive()

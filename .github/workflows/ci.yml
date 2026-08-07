@@ -195,3 +195,82 @@ jobs:
           unzip -l "$package" | grep -F 'lib/netstandard2.0/NetUnitOfWorkManager.dll'
           unzip -l "$package" | grep -F 'lib/netstandard2.0/NetUnitOfWorkManager.xml'
           unzip -l "$package" | grep -F 'README.md'
+
+      - name: Upload prerelease packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: prerelease-packages
+          path: artifacts/packages/*
+          if-no-files-found: error
+
+  prerelease-closure:
+    name: P10 prerelease package closure
+    runs-on: windows-2022
+    timeout-minutes: 25
+    needs:
+      - pack
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download prerelease packages
+        uses: actions/download-artifact@v4
+        with:
+          name: prerelease-packages
+          path: artifacts/packages
+
+      - name: Prepare SQL Server LocalDB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $sqlLocalDb = Get-Command SqlLocalDB.exe -ErrorAction SilentlyContinue
+          if ($null -eq $sqlLocalDb) {
+              choco install sqllocaldb --version=16.0.1000.6 -y --no-progress
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Chocolatey failed to install SQL Server LocalDB. Exit code: $LASTEXITCODE"
+              }
+
+              $sqlLocalDbPath = Get-ChildItem "${env:ProgramFiles}\Microsoft SQL Server" -Filter SqlLocalDB.exe -Recurse -ErrorAction SilentlyContinue |
+                  Select-Object -First 1 -ExpandProperty FullName
+
+              if ([string]::IsNullOrWhiteSpace($sqlLocalDbPath)) {
+                  throw 'SqlLocalDB.exe was not found after installation.'
+              }
+          }
+          else {
+              $sqlLocalDbPath = $sqlLocalDb.Source
+          }
+
+          & $sqlLocalDbPath info MSSQLLocalDB *> $null
+          if ($LASTEXITCODE -ne 0) {
+              & $sqlLocalDbPath create MSSQLLocalDB
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Failed to create MSSQLLocalDB. Exit code: $LASTEXITCODE"
+              }
+          }
+
+          & $sqlLocalDbPath start MSSQLLocalDB
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to start MSSQLLocalDB. Exit code: $LASTEXITCODE"
+          }
+
+          'NETUOW_SQLSERVER_CONNECTION_STRING=Server=(localdb)\MSSQLLocalDB;Initial Catalog=tempdb;Integrated Security=true;TrustServerCertificate=true' |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify prerelease package in real net472 application
+        shell: pwsh
+        run: ./scripts/verify-prerelease-package.ps1 -PackageDirectory ./artifacts/packages -Version 1.0.0-preview.1
+
+      - name: Upload P10 verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p10-verification-evidence
+          path: artifacts/packages/p10-package-verification.txt
+          if-no-files-found: error

@@ -100,7 +100,7 @@ namespace NetUnitOfWorkManager.SqlServer.Tests
                     return;
                 }
 
-                SqlServerBootstrap.Initialize();
+                GlobalConfiguration.Setup().UseSqlServer();
                 _repoDbInitialized = true;
             }
         }

@@ -134,6 +134,7 @@ try {
 
     [xml]$testXml = Get-Content -LiteralPath $testProject -Raw
     Assert-Equal 'Tests TargetFrameworks' (Get-RequiredXmlText $testXml '/Project/PropertyGroup/TargetFrameworks' 'Tests TargetFrameworks') 'net472;net8.0'
+    Assert-Equal 'Tests OutputType' (Get-RequiredXmlText $testXml '/Project/PropertyGroup/OutputType' 'Tests OutputType') 'Exe'
     Assert-Equal 'Tests IsPackable' (Get-RequiredXmlText $testXml '/Project/PropertyGroup/IsPackable' 'Tests IsPackable') 'false'
     Assert-SingleProjectReference $testXml $testProject $coreProject 'Tests project'
 

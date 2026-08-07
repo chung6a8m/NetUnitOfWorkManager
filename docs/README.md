@@ -6,7 +6,9 @@
 
 Dự án này không phải là bản port giảm cấp của `chung6a8m/UnitOfWorkManager`. Kiến trúc được chọn lại từ đầu theo khả năng thật của .NET Standard 2.0, nhằm tránh API trông bất đồng bộ nhưng thực tế phải fallback đồng bộ, tránh compatibility shim không cần thiết và giảm số lớp wrapper/state machine phải duy trì.
 
-## Baseline được khuyến nghị
+## Baseline v1 — APPROVED 2026-08-07
+
+Baseline sau đã được chốt chính thức và là cơ sở triển khai cho `docs/plans/20260807-001-netunitofworkmanager-v1.md`:
 
 1. Package chỉ target `netstandard2.0` ở v1.
 2. Unit of Work lifecycle là synchronous: `Begin()`, `Complete()`, `Rollback()`, `Dispose()`.
@@ -19,11 +21,19 @@ Dự án này không phải là bản port giảm cấp của `chung6a8m/UnitOfW
 9. `DbConnection` và `DbTransaction` chỉ được expose như borrowed interop objects cho Dapper/RepoDb/provider code; Unit of Work vẫn sở hữu lifecycle.
 10. Không hứa thread-safe hoặc parallel-use trên cùng connection/transaction.
 
+Các lựa chọn đã chốt:
+
+```text
+D1=1, D2=1, D3=1, D4=1, D5=1, D6=1
+```
+
+Các work package P01–P10 không cần hỏi lại những quyết định này, trừ khi có yêu cầu explicit thay đổi baseline.
+
 ## Bộ tài liệu
 
 - [Thiết kế và kiến trúc](netunitofworkmanager-design.md)
 - [Ma trận giữ / lược bỏ / bổ sung tính năng](feature-scope.md)
-- [Các quyết định có thể chọn nhanh](decisions.md)
+- [Các quyết định đã chốt](decisions.md)
 - [Implementation plan v1](plans/20260807-001-netunitofworkmanager-v1.md)
 
 ## Nguồn phân tích

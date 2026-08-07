@@ -47,7 +47,7 @@ namespace NetUnitOfWorkManager.SqlServer.Tests
                 command.CommandText = $"INSERT INTO [dbo].[{_fixture.TableName}] ([TestKey], [Value]) VALUES (@TestKey, @Value);";
                 command.Parameters.Add("@TestKey", SqlDbType.NVarChar, 96).Value = testKey;
                 command.Parameters.Add("@Value", SqlDbType.NVarChar, 256).Value = "ado async";
-                Assert.Equal(1, await command.ExecuteNonQueryAsync());
+                Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
             }
 
             scope.Complete();

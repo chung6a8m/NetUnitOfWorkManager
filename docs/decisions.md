@@ -1,22 +1,22 @@
 # Numbered design decisions
 
-Tài liệu này gom các điểm mà có nhiều phương án hợp lý. Baseline hiện tại đã chọn sẵn phương án khuyến nghị để implementation có thể bắt đầu mà không bị block.
+## Trạng thái
 
-Nếu muốn đổi, chỉ cần trả lời theo dạng:
+**APPROVED — 2026-08-07**
 
-```text
-D2=3, D4=2
-```
-
-Nếu không đổi gì, baseline mặc định là:
+Baseline v1 đã được chốt chính thức với toàn bộ phương án khuyến nghị:
 
 ```text
 D1=1, D2=1, D3=1, D4=1, D5=1, D6=1
 ```
 
+Các quyết định này là implementation baseline của v1 và **không cần hỏi lại trong các work package P01–P10**. Chỉ thay đổi khi có yêu cầu explicit cập nhật quyết định kiến trúc.
+
+---
+
 ## D1. Unit of Work lifecycle API
 
-### 1. Synchronous lifecycle only — **Recommended**
+### 1. Synchronous lifecycle only — **APPROVED**
 
 ```text
 Begin / Complete / Rollback / Dispose
@@ -42,13 +42,13 @@ Database command bên trong scope vẫn được phép async.
 - package riêng có thể cung cấp true-async lifecycle cho provider cụ thể;
 - chỉ nên làm sau khi có use case production rõ.
 
-**Baseline:** 1.
+**Decision:** 1 — approved.
 
 ---
 
 ## D2. Database access surface
 
-### 1. Borrowed session + safe `CreateCommand()` — **Recommended**
+### 1. Borrowed session + safe `CreateCommand()` — **APPROVED**
 
 Expose:
 
@@ -78,13 +78,13 @@ Db.CreateCommand()
 - Dapper/RepoDb phải có adapter package hoặc API riêng;
 - tăng số package và integration surface.
 
-**Baseline:** 1.
+**Decision:** 1 — approved.
 
 ---
 
 ## D3. Repository management
 
-### 1. Không có repository factory/cache trong core — **Recommended**
+### 1. Không có repository factory/cache trong core — **APPROVED**
 
 - application/DI quản lý repository;
 - core chỉ quản lý transaction boundary;
@@ -102,13 +102,13 @@ Db.CreateCommand()
 - vẫn có convenience layer cho app cần;
 - chỉ làm nếu có nhiều consumer yêu cầu.
 
-**Baseline:** 1.
+**Decision:** 1 — approved.
 
 ---
 
 ## D4. Concurrency policy
 
-### 1. Sequential-use contract, không runtime guard — **Recommended**
+### 1. Sequential-use contract, không runtime guard — **APPROVED**
 
 - ghi rõ một UoW không thread-safe;
 - không hỗ trợ parallel DB operations trên cùng connection/transaction;
@@ -128,13 +128,13 @@ Db.CreateCommand()
 - có thể tạo deadlock/latency khó đoán;
 - không nên là behavior mặc định của transaction manager.
 
-**Baseline:** 1.
+**Decision:** 1 — approved.
 
 ---
 
 ## D5. v1 transaction options
 
-### 1. Chỉ `IsolationLevel` — **Recommended**
+### 1. Chỉ `IsolationLevel` — **APPROVED**
 
 - ADO.NET generic contract rõ;
 - dễ test trên nhiều provider;
@@ -152,13 +152,13 @@ Db.CreateCommand()
 - nhiều semantics không portable;
 - dễ quay lại tình trạng option tồn tại nhưng behavior phụ thuộc provider.
 
-**Baseline:** 1.
+**Decision:** 1 — approved.
 
 ---
 
 ## D6. Target frameworks của package v1
 
-### 1. Chỉ `netstandard2.0` — **Recommended**
+### 1. Chỉ `netstandard2.0` — **APPROVED**
 
 - một implementation path;
 - đúng mục tiêu .NET Framework 4.7.2+;
@@ -177,7 +177,7 @@ Db.CreateCommand()
 - gần như không cần nếu `netstandard2.0` đã đáp ứng requirement;
 - tăng maintenance mà không có lợi ích rõ ở v1.
 
-**Baseline:** 1.
+**Decision:** 1 — approved.
 
 ---
 
@@ -195,3 +195,7 @@ Các điểm sau được coi là invariant sản phẩm, không phải option:
 8. Stable release phải có test chạy thật trên `net472`.
 9. Stable release phải có SQL Server integration verification.
 10. Core không phụ thuộc Dapper hoặc RepoDb runtime package.
+
+## Change control
+
+Nếu sau này cần thay đổi một quyết định đã chốt, cập nhật tài liệu này trước khi thay đổi implementation. Ghi rõ quyết định cũ, quyết định mới, lý do và work package bị ảnh hưởng để tránh drift giữa code, test và documentation.

@@ -1,0 +1,197 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-windows:
+    name: Build core (Windows)
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore core
+        run: dotnet restore src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj
+
+      - name: Build core Release
+        run: dotnet build src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj -c Release --no-restore -p:CI=true
+
+  build-linux:
+    name: Build core (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore core
+        run: dotnet restore src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj
+
+      - name: Build core Release
+        run: dotnet build src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj -c Release --no-restore -p:CI=true
+
+  test-net8:
+    name: Test net8.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore tests
+        run: dotnet restore tests/NetUnitOfWorkManager.Tests/NetUnitOfWorkManager.Tests.csproj
+
+      - name: Run net8.0 tests
+        run: dotnet test tests/NetUnitOfWorkManager.Tests/NetUnitOfWorkManager.Tests.csproj -c Release -f net8.0 --no-restore -p:CI=true
+
+  test-net472:
+    name: Test .NET Framework 4.7.2
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Verify net472 runtime compatibility
+        shell: pwsh
+        run: ./scripts/verify-net472.ps1
+
+  sqlserver-integration:
+    name: SQL Server + Dapper + RepoDb
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Prepare SQL Server LocalDB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $sqlLocalDb = Get-Command SqlLocalDB.exe -ErrorAction SilentlyContinue
+          if ($null -eq $sqlLocalDb) {
+              choco install sqllocaldb --version=16.0.1000.6 -y --no-progress
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Chocolatey failed to install SQL Server LocalDB. Exit code: $LASTEXITCODE"
+              }
+
+              $sqlLocalDbPath = Get-ChildItem "${env:ProgramFiles}\Microsoft SQL Server" -Filter SqlLocalDB.exe -Recurse -ErrorAction SilentlyContinue |
+                  Select-Object -First 1 -ExpandProperty FullName
+
+              if ([string]::IsNullOrWhiteSpace($sqlLocalDbPath)) {
+                  throw 'SqlLocalDB.exe was not found after installation.'
+              }
+          }
+          else {
+              $sqlLocalDbPath = $sqlLocalDb.Source
+          }
+
+          & $sqlLocalDbPath info MSSQLLocalDB *> $null
+          if ($LASTEXITCODE -ne 0) {
+              & $sqlLocalDbPath create MSSQLLocalDB
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Failed to create MSSQLLocalDB. Exit code: $LASTEXITCODE"
+              }
+          }
+
+          & $sqlLocalDbPath start MSSQLLocalDB
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to start MSSQLLocalDB. Exit code: $LASTEXITCODE"
+          }
+
+          'NETUOW_SQLSERVER_CONNECTION_STRING=Server=(localdb)\MSSQLLocalDB;Initial Catalog=tempdb;Integrated Security=true;TrustServerCertificate=true' |
+              Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify SQL Server integrations
+        shell: pwsh
+        run: ./scripts/verify-sqlserver.ps1
+
+  pack:
+    name: Pack and validate NuGet package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs:
+      - build-windows
+      - build-linux
+      - test-net8
+      - test-net472
+      - sqlserver-integration
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore core
+        run: dotnet restore src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj
+
+      - name: Build core Release
+        run: dotnet build src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj -c Release --no-restore -p:CI=true
+
+      - name: Pack with package validation
+        run: dotnet pack src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj -c Release --no-build --no-restore -p:CI=true -o artifacts/packages
+
+      - name: Validate package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package="$(find artifacts/packages -maxdepth 1 -type f -name '*.nupkg' ! -name '*.symbols.nupkg' -print -quit)"
+          symbols="$(find artifacts/packages -maxdepth 1 -type f -name '*.snupkg' -print -quit)"
+
+          test -n "$package"
+          test -n "$symbols"
+
+          unzip -l "$package" | grep -F 'lib/netstandard2.0/NetUnitOfWorkManager.dll'
+          unzip -l "$package" | grep -F 'lib/netstandard2.0/NetUnitOfWorkManager.xml'
+          unzip -l "$package" | grep -F 'README.md'

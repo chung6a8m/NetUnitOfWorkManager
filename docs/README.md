@@ -61,6 +61,16 @@ Sau khi scope đã settled hoặc root Unit of Work đã finalized, database ses
 
 ## Bộ tài liệu
 
+Public/release documentation:
+
+- [Public package README](../README.md)
+- [Usage guide](usage.md)
+- [Compatibility and release contract](compatibility.md)
+- [Anti-patterns](anti-patterns.md)
+- [Changelog](../CHANGELOG.md)
+
+Architecture and planning documentation:
+
 - [Thiết kế và kiến trúc](netunitofworkmanager-design.md)
 - [Ma trận giữ / lược bỏ / bổ sung tính năng](feature-scope.md)
 - [Các quyết định đã chốt](decisions.md)

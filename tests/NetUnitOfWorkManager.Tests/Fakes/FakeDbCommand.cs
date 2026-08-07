@@ -33,6 +33,9 @@ namespace NetUnitOfWorkManager.Tests.Fakes
 
         public override UpdateRowSource UpdatedRowSource { get; set; }
 
+#if NET8_0_OR_GREATER
+        [AllowNull]
+#endif
         protected override DbConnection DbConnection
         {
             get => _connection;

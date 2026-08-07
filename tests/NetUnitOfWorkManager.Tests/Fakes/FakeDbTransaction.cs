@@ -26,6 +26,12 @@ namespace NetUnitOfWorkManager.Tests.Fakes
 
         internal Exception? DisposeException { get; set; }
 
+        internal Action? CommitCallback { get; set; }
+
+        internal Action? RollbackCallback { get; set; }
+
+        internal Action? DisposeCallback { get; set; }
+
         public override IsolationLevel IsolationLevel { get; }
 
         protected override DbConnection DbConnection => _connection;
@@ -33,6 +39,7 @@ namespace NetUnitOfWorkManager.Tests.Fakes
         public override void Commit()
         {
             CommitCallCount++;
+            CommitCallback?.Invoke();
 
             if (CommitException != null)
             {
@@ -43,6 +50,7 @@ namespace NetUnitOfWorkManager.Tests.Fakes
         public override void Rollback()
         {
             RollbackCallCount++;
+            RollbackCallback?.Invoke();
 
             if (RollbackException != null)
             {
@@ -55,6 +63,7 @@ namespace NetUnitOfWorkManager.Tests.Fakes
             if (disposing)
             {
                 DisposeCallCount++;
+                DisposeCallback?.Invoke();
 
                 if (DisposeException != null)
                 {

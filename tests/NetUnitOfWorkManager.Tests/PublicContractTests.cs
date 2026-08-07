@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace NetUnitOfWorkManager.Tests
@@ -27,6 +28,46 @@ namespace NetUnitOfWorkManager.Tests
             Assert.DoesNotContain(
                 publicMethods,
                 method => method.Name.EndsWith("Async", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Assembly_PublicApi_DoesNotExposeTaskBasedOrFakeAsyncSurface()
+        {
+            Type[] publicTypes = typeof(UnitOfWorkManager).Assembly.GetExportedTypes();
+
+            foreach (Type publicType in publicTypes)
+            {
+                Assert.DoesNotContain(
+                    publicType.GetInterfaces(),
+                    interfaceType => string.Equals(
+                        interfaceType.FullName,
+                        "System.IAsyncDisposable",
+                        StringComparison.Ordinal));
+
+                MethodInfo[] declaredMethods = publicType.GetMethods(
+                    BindingFlags.Public |
+                    BindingFlags.Instance |
+                    BindingFlags.Static |
+                    BindingFlags.DeclaredOnly);
+
+                Assert.DoesNotContain(
+                    declaredMethods,
+                    method => method.Name.EndsWith("Async", StringComparison.Ordinal));
+
+                Assert.DoesNotContain(
+                    declaredMethods,
+                    method => IsTaskLike(method.ReturnType));
+
+                PropertyInfo[] declaredProperties = publicType.GetProperties(
+                    BindingFlags.Public |
+                    BindingFlags.Instance |
+                    BindingFlags.Static |
+                    BindingFlags.DeclaredOnly);
+
+                Assert.DoesNotContain(
+                    declaredProperties,
+                    property => IsTaskLike(property.PropertyType));
+            }
         }
 
         [Fact]
@@ -89,6 +130,23 @@ namespace NetUnitOfWorkManager.Tests
             Assert.Equal(typeof(DbTransaction), transaction.PropertyType);
             Assert.Equal(typeof(DbCommand), createCommand.ReturnType);
             Assert.Empty(createCommand.GetParameters());
+        }
+
+        private static bool IsTaskLike(Type type)
+        {
+            if (typeof(Task).IsAssignableFrom(type))
+            {
+                return true;
+            }
+
+            Type normalizedType = type.IsGenericType
+                ? type.GetGenericTypeDefinition()
+                : type;
+
+            string? fullName = normalizedType.FullName;
+            return string.Equals(fullName, "System.Threading.Tasks.ValueTask", StringComparison.Ordinal) ||
+                   string.Equals(fullName, "System.Threading.Tasks.ValueTask`1", StringComparison.Ordinal) ||
+                   string.Equals(fullName, "System.Collections.Generic.IAsyncEnumerable`1", StringComparison.Ordinal);
         }
     }
 }

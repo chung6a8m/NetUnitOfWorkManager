@@ -29,6 +29,36 @@ D1=1, D2=1, D3=1, D4=1, D5=1, D6=1
 
 Các work package P01–P10 không cần hỏi lại những quyết định này, trừ khi có yêu cầu explicit thay đổi baseline.
 
+## Provider-native database session
+
+Trong một scope đang active, `scope.Db` expose trực tiếp provider-native `DbConnection` và `DbTransaction`. Với ADO.NET thuần, ưu tiên `scope.Db.CreateCommand()` vì command được tạo bởi chính provider connection và tự động bind với transaction hiện tại.
+
+Ví dụ:
+
+```csharp
+using (IUnitOfWorkScope scope = manager.Begin())
+{
+    using (DbCommand command = scope.Db.CreateCommand())
+    {
+        command.CommandText = "...";
+        command.ExecuteNonQuery();
+    }
+
+    scope.Complete();
+}
+```
+
+`scope.Db.Connection` và `scope.Db.Transaction` là **borrowed objects**. Caller không sở hữu lifecycle của hai object này:
+
+- không `Close()` hoặc `Dispose()` connection;
+- không `Commit()`, `Rollback()` hoặc `Dispose()` transaction;
+- không bắt đầu competing transaction trên cùng connection;
+- không đổi database hoặc connection string khi Unit of Work đang active.
+
+Command do `CreateCommand()` trả về vẫn là provider-native command và caller sở hữu lifecycle của command đó, vì vậy nên dispose command theo cách thông thường.
+
+Sau khi scope đã settled hoặc root Unit of Work đã finalized, database session không còn hợp lệ và access sẽ fail-fast bằng `UnitOfWorkStateException`.
+
 ## Bộ tài liệu
 
 - [Thiết kế và kiến trúc](netunitofworkmanager-design.md)

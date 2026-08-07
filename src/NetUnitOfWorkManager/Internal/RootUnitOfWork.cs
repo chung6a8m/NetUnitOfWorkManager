@@ -6,20 +6,26 @@ using System.Runtime.ExceptionServices;
 
 namespace NetUnitOfWorkManager.Internal
 {
-    internal sealed class RootUnitOfWork
+    internal sealed class RootUnitOfWork : IUnitOfWorkContext
     {
         private readonly object _lifecycleSync = new object();
         private readonly DbConnection _connection;
         private readonly DbTransaction _transaction;
         private readonly UnitOfWorkDbSession _db;
+        private readonly IsolationLevel? _requestedIsolationLevel;
         private UnitOfWorkLifecycleState _state;
         private bool _rollbackRequested;
+        private int _activeScopeCount;
 
-        private RootUnitOfWork(DbConnection connection, DbTransaction transaction)
+        private RootUnitOfWork(
+            DbConnection connection,
+            DbTransaction transaction,
+            IsolationLevel? requestedIsolationLevel)
         {
             _connection = connection;
             _transaction = transaction;
             _db = new UnitOfWorkDbSession(connection, transaction);
+            _requestedIsolationLevel = requestedIsolationLevel;
             _state = UnitOfWorkLifecycleState.Active;
         }
 
@@ -34,7 +40,9 @@ namespace NetUnitOfWorkManager.Internal
             }
         }
 
-        internal UnitOfWorkDbSession Db
+        internal IsolationLevel? RequestedIsolationLevel => _requestedIsolationLevel;
+
+        public UnitOfWorkDbSession Db
         {
             get
             {
@@ -46,7 +54,7 @@ namespace NetUnitOfWorkManager.Internal
             }
         }
 
-        internal bool IsRollbackRequested
+        public bool IsRollbackRequested
         {
             get
             {
@@ -83,13 +91,46 @@ namespace NetUnitOfWorkManager.Internal
                     throw new InvalidOperationException("The database provider returned a null transaction.");
                 }
 
-                return new RootUnitOfWork(connection, transaction);
+                return new RootUnitOfWork(connection, transaction, isolationLevel);
             }
             catch (Exception primaryFailure)
             {
                 IReadOnlyList<Exception> cleanupFailures = ResourceCleanup.Dispose(transaction, connection);
                 ThrowFailures(primaryFailure, cleanupFailures, "Unit of Work initialization failed and resource cleanup also encountered errors.");
                 throw;
+            }
+        }
+
+        internal void AcquireScope()
+        {
+            lock (_lifecycleSync)
+            {
+                EnsureActive();
+                checked
+                {
+                    _activeScopeCount++;
+                }
+            }
+        }
+
+        internal bool ReleaseScope(bool requestRollback)
+        {
+            lock (_lifecycleSync)
+            {
+                EnsureActive();
+
+                if (_activeScopeCount == 0)
+                {
+                    throw new UnitOfWorkStateException("The root Unit of Work has no active scope to release.");
+                }
+
+                if (requestRollback)
+                {
+                    _rollbackRequested = true;
+                }
+
+                _activeScopeCount--;
+                return _activeScopeCount == 0;
             }
         }
 
@@ -109,6 +150,13 @@ namespace NetUnitOfWorkManager.Internal
             lock (_lifecycleSync)
             {
                 EnsureActive();
+
+                if (_activeScopeCount != 0)
+                {
+                    throw new UnitOfWorkStateException(
+                        "The root Unit of Work cannot be finalized while scopes are still active.");
+                }
+
                 _state = UnitOfWorkLifecycleState.Finalizing;
                 rollbackRequested = _rollbackRequested;
             }

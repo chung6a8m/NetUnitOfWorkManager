@@ -6,9 +6,15 @@ The project follows Semantic Versioning after the public package contract is est
 
 ## [Unreleased]
 
+### Added
+
+- P10 prerelease closure verification that audits the produced nupkg/snupkg and consumes the exact prerelease package from a separate real `.NET Framework 4.7.2` application against SQL Server.
+- Reflection-based public API guard against accidental `Async`, `Task`, `ValueTask`, `IAsyncEnumerable<T>`, or `IAsyncDisposable` lifecycle surface.
+- CI evidence artifact for the P10 package-consumer closure gate.
+
 ### Changed
 
-- Stable `1.0.0` remains gated by P10 prerelease verification and the D7 license decision.
+- Stable `1.0.0` now requires successful P10 technical verification and remains blocked from public publication until the D7 license decision is closed.
 
 ## [1.0.0-preview.1] - 2026-08-07
 

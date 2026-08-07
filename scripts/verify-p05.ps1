@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $testProject = 'tests/NetUnitOfWorkManager.Tests/NetUnitOfWorkManager.Tests.csproj'
 $coreProject = 'src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj'
-$isWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+$runningOnWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 
 Push-Location $repoRoot
 try {
@@ -24,12 +24,12 @@ try {
     dotnet test $testProject -c Release -f net8.0 --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'net8.0 tests failed.' }
 
-    if ($isWindows -and -not $SkipNet472) {
+    if ($runningOnWindows -and -not $SkipNet472) {
         Write-Host 'Running P05/unit tests on net472...'
         dotnet test $testProject -c Release -f net472 --no-restore
         if ($LASTEXITCODE -ne 0) { throw 'net472 tests failed.' }
     }
-    elseif (-not $isWindows) {
+    elseif (-not $runningOnWindows) {
         Write-Host 'Skipping net472 execution because this host is not Windows.'
     }
     else {

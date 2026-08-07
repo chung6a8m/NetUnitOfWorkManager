@@ -19,6 +19,8 @@ namespace NetUnitOfWorkManager.Tests.Fakes
 
         internal int BeginTransactionCallCount { get; private set; }
 
+        internal int CreateCommandCallCount { get; private set; }
+
         internal int DisposeCallCount { get; private set; }
 
         internal Exception? OpenException { get; set; }
@@ -34,6 +36,8 @@ namespace NetUnitOfWorkManager.Tests.Fakes
         internal Exception? TransactionDisposeException { get; set; }
 
         internal FakeDbTransaction? LastTransaction { get; private set; }
+
+        internal FakeDbCommand? LastCommand { get; private set; }
 
         internal IsolationLevel? LastBeginIsolationLevel { get; private set; }
 
@@ -99,7 +103,10 @@ namespace NetUnitOfWorkManager.Tests.Fakes
 
         protected override DbCommand CreateDbCommand()
         {
-            throw new NotSupportedException();
+            CreateCommandCallCount++;
+            FakeDbCommand command = new FakeDbCommand(this);
+            LastCommand = command;
+            return command;
         }
 
         protected override void Dispose(bool disposing)

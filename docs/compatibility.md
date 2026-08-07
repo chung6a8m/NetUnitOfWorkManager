@@ -56,7 +56,7 @@ An inner rollback or abandoned scope marks the root transaction rollback-only. T
 The package follows Semantic Versioning for the public API and documented behavioral contract.
 
 - Prerelease line: `1.0.0-preview.N`.
-- First stable release: `1.0.0` after P10 verification succeeds.
+- First stable release: `1.0.0` after P10 verification succeeds and D7 is closed.
 - Patch releases (`1.0.x`) are reserved for compatible fixes.
 - Minor releases (`1.x.0`) may add backward-compatible API or behavior.
 - Breaking public API or documented contract changes require a major version increment after stable v1.
@@ -79,6 +79,20 @@ When a later major version intentionally breaks compatibility, its release proce
 
 Release packs enable repository metadata, portable PDBs, and `.snupkg` symbol packages. Builds use .NET 8 SDK or newer CI tooling, where Source Link build support is part of the SDK.
 
+## P10 prerelease closure contract
+
+A prerelease is not considered technically closed from source-project tests alone. P10 verifies the produced NuGet artifact after all lower-level CI gates have passed.
+
+The closure gate requires:
+
+- the main nupkg to expose only `README.md`, `lib/netstandard2.0/NetUnitOfWorkManager.dll`, and `lib/netstandard2.0/NetUnitOfWorkManager.xml` as public payload files;
+- the generated nuspec to contain no runtime NuGet dependencies;
+- the symbol package to contain `lib/netstandard2.0/NetUnitOfWorkManager.pdb`;
+- a separate `.NET Framework 4.7.2` application to restore the exact produced nupkg through `PackageReference` and execute successfully against SQL Server;
+- exported public API tests to reject accidental `Async`, `Task`, `ValueTask`, `IAsyncEnumerable<T>`, or `IAsyncDisposable` lifecycle surface.
+
+See `docs/prerelease-verification.md` for the checklist-to-evidence mapping and local verification command.
+
 ## License gate
 
-The package project intentionally does not declare NuGet license metadata yet because decision gate D7 has not been closed. This does not block package-quality implementation, but it blocks public stable NuGet publication.
+The package project intentionally does not declare NuGet license metadata yet because decision gate D7 has not been closed. This does not block package-quality or P10 technical verification, but it blocks public stable NuGet publication.

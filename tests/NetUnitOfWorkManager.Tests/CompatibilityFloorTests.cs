@@ -3,18 +3,19 @@ using System.IO;
 using System.Reflection;
 using Xunit;
 
-namespace NetUnitOfWorkManager.Tests;
-
-public sealed class CompatibilityFloorTests
+namespace NetUnitOfWorkManager.Tests
 {
-    [Fact]
-    public void CoreAssembly_IsPresentInConsumerOutput()
+    public sealed class CompatibilityFloorTests
     {
-        string assemblyPath = Path.Combine(AppContext.BaseDirectory, "NetUnitOfWorkManager.dll");
+        [Fact]
+        public void CoreAssembly_IsPresentInConsumerOutput()
+        {
+            string assemblyPath = Path.Combine(AppContext.BaseDirectory, "NetUnitOfWorkManager.dll");
 
-        Assert.True(File.Exists(assemblyPath), $"Expected core assembly at '{assemblyPath}'.");
+            Assert.True(File.Exists(assemblyPath), $"Expected core assembly at '{assemblyPath}'.");
 
-        AssemblyName assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
-        Assert.Equal("NetUnitOfWorkManager", assemblyName.Name);
+            AssemblyName assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
+            Assert.Equal("NetUnitOfWorkManager", assemblyName.Name);
+        }
     }
 }

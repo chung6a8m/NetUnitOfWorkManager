@@ -14,6 +14,28 @@ Console sample chạy trên **.NET Framework 4.7.2** và mô phỏng luồng tra
 
 RepoDb nhận trực tiếp `UnitOfWorkDbSession.Connection` và `UnitOfWorkDbSession.Transaction`, vì vậy các câu lệnh repository chạy trong đúng transaction do `NetUnitOfWorkManager` quản lý.
 
+## RepoDb attribute mapping
+
+`CounterItem` dùng attribute mapping của RepoDb để mô tả trực tiếp schema của entity:
+
+```csharp
+[Map("[dbo].[NetUnitOfWorkCounter]")]
+public sealed class CounterItem
+{
+    [Primary]
+    [Identity]
+    public long Id { get; set; }
+
+    public int Value { get; set; }
+}
+```
+
+Repository dùng các entity operation của RepoDb thay cho raw SQL:
+
+- `Insert<CounterItem, long>()` lấy tên bảng từ `[Map]` và nhận biết cột identity qua `[Identity]`.
+- `QueryAll<CounterItem>()` lấy tên bảng từ `[Map]` và sắp xếp theo `Id`.
+- Cả hai operation đều nhận `transaction: db.Transaction`, nên RepoDb vẫn tham gia đúng physical transaction do `NetUnitOfWorkManager` quản lý.
+
 ## Chuẩn bị SQL Server
 
 PowerShell:

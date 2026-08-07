@@ -18,6 +18,7 @@ if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $coreProject = 'src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj'
 $integrationProject = 'tests/NetUnitOfWorkManager.SqlServer.Tests/NetUnitOfWorkManager.SqlServer.Tests.csproj'
+$sampleProject = 'samples/NetUnitOfWorkManager.Sample.RepoDb.Net472/NetUnitOfWorkManager.Sample.RepoDb.Net472.csproj'
 $previousConnectionString = $env:NETUOW_SQLSERVER_CONNECTION_STRING
 
 Push-Location $repoRoot
@@ -28,6 +29,10 @@ try {
     dotnet restore $integrationProject
     if ($LASTEXITCODE -ne 0) { throw 'SQL Server integration project restore failed.' }
 
+    Write-Host 'Restoring RepoDb net472 console sample...'
+    dotnet restore $sampleProject
+    if ($LASTEXITCODE -ne 0) { throw 'RepoDb net472 console sample restore failed.' }
+
     Write-Host 'Building netstandard2.0 core in Release...'
     dotnet build $coreProject -c Release --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Core Release build failed.' }
@@ -35,6 +40,10 @@ try {
     Write-Host 'Building SQL Server integration tests for net472...'
     dotnet build $integrationProject -c Release --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'SQL Server integration test build failed.' }
+
+    Write-Host 'Building RepoDb console sample for net472...'
+    dotnet build $sampleProject -c Release --no-restore
+    if ($LASTEXITCODE -ne 0) { throw 'RepoDb net472 console sample build failed.' }
 
     Write-Host 'Verifying that core has no Dapper or RepoDb package references...'
     [xml]$coreXml = Get-Content -LiteralPath $coreProject -Raw
@@ -51,6 +60,10 @@ try {
     Write-Host 'Running SQL Server, Dapper and RepoDb integration tests on net472...'
     dotnet test $integrationProject -c Release -f net472 --no-build --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'P08 SQL Server integration tests failed.' }
+
+    Write-Host 'Running RepoDb net472 console sample against SQL Server...'
+    dotnet run --project $sampleProject -c Release --no-build --no-restore
+    if ($LASTEXITCODE -ne 0) { throw 'RepoDb net472 console sample failed.' }
 
     Write-Host 'P08 SQL Server, Dapper and RepoDb integration verification completed successfully.'
 }

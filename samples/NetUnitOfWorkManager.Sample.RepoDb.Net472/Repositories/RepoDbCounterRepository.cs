@@ -32,10 +32,7 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472.Repositories
             global::NetUnitOfWorkManager.UnitOfWorkDbSession db = _unitOfWorkManager.Current.Db;
 
             return db.Connection.QueryAll<CounterItem>(
-                    orderBy: OrderField.Parse(new
-                    {
-                        Id = Order.Ascending
-                    }),
+                    orderBy: OrderField.Ascending<CounterItem>(item => item.Id),
                     transaction: db.Transaction)
                 .ToArray();
         }

@@ -1,0 +1,33 @@
+name: verify-p04
+
+on:
+  push:
+    branches:
+      - feature/p04-ambient-nested-scopes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  net8:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore
+      - run: dotnet build src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj -c Release -warnaserror --no-restore
+      - run: dotnet test tests/NetUnitOfWorkManager.Tests/NetUnitOfWorkManager.Tests.csproj -f net8.0 -c Release -warnaserror --no-restore
+
+  net472:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore
+      - run: dotnet build src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj -c Release -warnaserror --no-restore
+      - run: dotnet test tests/NetUnitOfWorkManager.Tests/NetUnitOfWorkManager.Tests.csproj -f net472 -c Release -warnaserror --no-restore

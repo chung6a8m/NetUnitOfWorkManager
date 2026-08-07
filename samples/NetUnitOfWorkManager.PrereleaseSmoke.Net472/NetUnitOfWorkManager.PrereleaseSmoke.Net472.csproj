@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <NetUnitOfWorkManagerVersion Condition="'$(NetUnitOfWorkManagerVersion)' == ''">1.0.0-preview.1</NetUnitOfWorkManagerVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetUnitOfWorkManager" Version="$(NetUnitOfWorkManagerVersion)" />
+  </ItemGroup>
+</Project>

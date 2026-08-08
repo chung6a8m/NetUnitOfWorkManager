@@ -15,8 +15,44 @@ $repoDbSampleProject = 'samples/NetUnitOfWorkManager.Sample.RepoDb.Net472/NetUni
 $testProject = 'tests/NetUnitOfWorkManager.Tests/NetUnitOfWorkManager.Tests.csproj'
 $sampleExe = Join-Path $repoRoot 'samples/NetUnitOfWorkManager.Sample.Net472/bin/Release/net472/NetUnitOfWorkManager.Sample.Net472.exe'
 
+function Assert-CoreProjectReference {
+    param([Parameter(Mandatory = $true)][string]$ProjectPath)
+
+    $fullProjectPath = Join-Path $repoRoot $ProjectPath
+    [xml]$xml = Get-Content -LiteralPath $fullProjectPath -Raw
+
+    $packageReferences = @($xml.SelectNodes('/Project/ItemGroup/PackageReference'))
+    foreach ($packageReference in $packageReferences) {
+        if ($packageReference.GetAttribute('Include') -eq 'NetUnitOfWorkManager') {
+            throw "P12 reference sample must not package-reference NetUnitOfWorkManager: $ProjectPath"
+        }
+    }
+
+    $projectReferences = @($xml.SelectNodes('/Project/ItemGroup/ProjectReference'))
+    if ($projectReferences.Count -ne 1) {
+        throw "P12 reference sample must contain exactly one ProjectReference: $ProjectPath"
+    }
+
+    $include = $projectReferences[0].GetAttribute('Include')
+    $projectDirectory = Split-Path -Parent $fullProjectPath
+    $resolvedReference = (Resolve-Path (Join-Path $projectDirectory $include)).Path
+    $resolvedCore = (Resolve-Path (Join-Path $repoRoot $coreProject)).Path
+
+    if (-not [string]::Equals(
+        $resolvedReference,
+        $resolvedCore,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "P12 reference sample ProjectReference must resolve to core: $ProjectPath"
+    }
+}
+
 Push-Location $repoRoot
 try {
+    Write-Host 'Verifying P12 source ProjectReference policy...'
+    Assert-CoreProjectReference $sampleProject
+    Assert-CoreProjectReference $dapperSampleProject
+    Assert-CoreProjectReference $repoDbSampleProject
+
     Write-Host 'Restoring solution...'
     dotnet restore .\NetUnitOfWorkManager.sln
     if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }

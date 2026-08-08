@@ -331,6 +331,81 @@ namespace NetUnitOfWorkManager.Tests
         }
 
         [Fact]
+        public void Hidden_Outer_Root_Commit_Is_Not_Restored_After_Suppression()
+        {
+            FakeDbConnection connection = new FakeDbConnection();
+            UnitOfWorkManager manager = CreateManager(connection);
+            IUnitOfWorkScope outer = manager.Begin();
+            IDisposable suppression = manager.Suppress();
+
+            outer.Complete();
+
+            Assert.False(manager.HasCurrent);
+            suppression.Dispose();
+            Assert.False(manager.HasCurrent);
+            Assert.Throws<UnitOfWorkStateException>(() => manager.Current);
+        }
+
+        [Fact]
+        public void Hidden_Outer_Root_Rollback_Is_Not_Restored_After_Suppression()
+        {
+            FakeDbConnection connection = new FakeDbConnection();
+            UnitOfWorkManager manager = CreateManager(connection);
+            IUnitOfWorkScope outer = manager.Begin();
+            IDisposable suppression = manager.Suppress();
+
+            outer.Rollback();
+
+            Assert.False(manager.HasCurrent);
+            suppression.Dispose();
+            Assert.False(manager.HasCurrent);
+            Assert.Throws<UnitOfWorkStateException>(() => manager.Current);
+        }
+
+        [Fact]
+        public void Hidden_Outer_Root_Finalization_Failure_Is_Not_Restored_After_Suppression()
+        {
+            InvalidOperationException commitFailure = new InvalidOperationException("outer commit failed");
+            FakeDbConnection connection = new FakeDbConnection
+            {
+                CommitException = commitFailure
+            };
+            UnitOfWorkManager manager = CreateManager(connection);
+            IUnitOfWorkScope outer = manager.Begin();
+            IDisposable suppression = manager.Suppress();
+
+            InvalidOperationException thrown = Assert.Throws<InvalidOperationException>(() => outer.Complete());
+
+            Assert.Same(commitFailure, thrown);
+            Assert.False(manager.HasCurrent);
+            suppression.Dispose();
+            Assert.False(manager.HasCurrent);
+            Assert.Throws<UnitOfWorkStateException>(() => manager.Current);
+        }
+
+        [Fact]
+        public async Task Suppression_Dispose_In_Child_Flow_Does_Not_Prevent_Parent_Restore()
+        {
+            FakeDbConnection connection = new FakeDbConnection();
+            UnitOfWorkManager manager = CreateManager(connection);
+            IUnitOfWorkScope outer = manager.Begin();
+            IUnitOfWorkContext outerContext = manager.Current;
+            IDisposable suppression = manager.Suppress();
+
+            await Task.Run(() =>
+            {
+                Assert.False(manager.HasCurrent);
+                suppression.Dispose();
+                Assert.Same(outerContext, manager.Current);
+            });
+
+            Assert.False(manager.HasCurrent);
+            suppression.Dispose();
+            Assert.Same(outerContext, manager.Current);
+            outer.Rollback();
+        }
+
+        [Fact]
         public void Suppress_Does_Not_Touch_Database_Lifecycle()
         {
             FakeDbConnection connection = new FakeDbConnection();

@@ -8,7 +8,7 @@ The library intentionally keeps transaction lifecycle synchronous (`Begin`, `Com
 
 The project is on the `1.0.0-preview.1` package line. P10 added an executable prerelease closure gate that tests the produced nupkg in a real `.NET Framework 4.7.2` application after all unit, compatibility, SQL Server, Dapper, and RepoDb gates pass.
 
-P11 adds ambient suppression as part of the planned v1 public contract. Stable `1.0.0` is intentionally deferred to P14, after P11-P13 are completed and remaining release blockers such as the repository license decision are closed.
+P11 added ambient suppression to the planned v1 public contract, P12 added project-reference ADO.NET/Dapper/RepoDb reference samples, and P13 adds deterministic production-hardening coverage for deep nested lifecycle behavior, repeated ambient use, async logical flow, suppression failure recovery, and real SQL Server transaction independence. Stable `1.0.0` remains intentionally deferred to P14.
 
 See [P10 prerelease verification](docs/prerelease-verification.md) and the [post-v1 development plan](docs/plans/20260808-001-netunitofworkmanager-post-v1.md).
 
@@ -152,11 +152,23 @@ CI verifies:
 - `netstandard2.0` Release builds on Windows and Linux;
 - `net8.0` unit/contract tests;
 - real `net472` tests on Windows;
+- deterministic P13 hardening bounds including 64 nested scopes, 200 sequential roots, 32 nested suppression boundaries, and 200 suppress/restore cycles;
+- ambient behavior across `await` without parallel database commands or timing-based sleeps;
+- failure recovery after begin, commit, rollback, cleanup, and independent-root failures;
+- real SQL Server suppression independence for ADO.NET, Dapper, and RepoDb;
 - SQL Server + Dapper + RepoDb integration on Windows;
 - NuGet packing with package validation enabled;
 - package contents include only the intended public payload;
 - compiler warnings fail CI for source projects;
 - the exact prerelease nupkg is restored, built, and executed by a separate real `net472` package consumer against SQL Server.
+
+The one-command Windows hardening gate is:
+
+```powershell
+pwsh -File .\scripts\verify-hardening.ps1
+```
+
+It requires `NETUOW_SQLSERVER_CONNECTION_STRING`; SQL Server hardening is not silently skipped when that variable is missing.
 
 The package produces portable symbols (`.snupkg`) and Source Link metadata using the .NET SDK build tooling.
 

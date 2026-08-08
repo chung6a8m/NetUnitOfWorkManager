@@ -12,7 +12,8 @@ namespace NetUnitOfWorkManager
     public sealed class UnitOfWorkManager : IUnitOfWorkManager
     {
         private readonly Func<DbConnection> _connectionFactory;
-        private readonly AsyncLocal<RootUnitOfWork?> _current = new AsyncLocal<RootUnitOfWork?>();
+        private readonly AsyncLocal<AmbientUnitOfWorkFrame?> _ambient = new AsyncLocal<AmbientUnitOfWorkFrame?>();
+        private long _nextSuppressionBoundaryId;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="UnitOfWorkManager"/> class.
@@ -24,14 +25,14 @@ namespace NetUnitOfWorkManager
         }
 
         /// <inheritdoc/>
-        public bool HasCurrent => _current.Value != null;
+        public bool HasCurrent => _ambient.Value?.Root != null;
 
         /// <inheritdoc/>
         public IUnitOfWorkContext Current
         {
             get
             {
-                RootUnitOfWork? root = _current.Value;
+                RootUnitOfWork? root = _ambient.Value?.Root;
 
                 if (root == null)
                 {
@@ -45,11 +46,12 @@ namespace NetUnitOfWorkManager
         /// <inheritdoc/>
         public IUnitOfWorkScope Begin(UnitOfWorkOptions? options = null)
         {
-            RootUnitOfWork? root = _current.Value;
+            AmbientUnitOfWorkFrame? currentFrame = _ambient.Value;
+            RootUnitOfWork? root = currentFrame?.Root;
 
             if (root == null)
             {
-                return BeginRoot(options);
+                return BeginRoot(options, currentFrame);
             }
 
             ValidateNestedOptions(root, options);
@@ -60,10 +62,48 @@ namespace NetUnitOfWorkManager
         /// <inheritdoc/>
         public IDisposable Suppress()
         {
-            throw new NotSupportedException("Ambient suppression has not been implemented yet.");
+            long boundaryId = Interlocked.Increment(ref _nextSuppressionBoundaryId);
+
+            if (boundaryId <= 0)
+            {
+                throw new UnitOfWorkStateException("The ambient suppression boundary identity space has been exhausted.");
+            }
+
+            AmbientUnitOfWorkFrame boundary = AmbientUnitOfWorkFrame.ForSuppression(
+                boundaryId,
+                _ambient.Value);
+
+            _ambient.Value = boundary;
+            return new UnitOfWorkSuppression(this, boundary);
         }
 
-        private IUnitOfWorkScope BeginRoot(UnitOfWorkOptions? options)
+        internal void RestoreSuppression(AmbientUnitOfWorkFrame boundary)
+        {
+            if (boundary == null)
+            {
+                throw new ArgumentNullException(nameof(boundary));
+            }
+
+            AmbientUnitOfWorkFrame? currentFrame = _ambient.Value;
+
+            if (!ReferenceEquals(currentFrame, boundary))
+            {
+                if (currentFrame?.Root != null)
+                {
+                    throw new UnitOfWorkStateException(
+                        "The suppression scope cannot be disposed while an independent Unit of Work started inside it is still active.");
+                }
+
+                throw new UnitOfWorkStateException(
+                    "Suppression scopes must be disposed in LIFO order.");
+            }
+
+            _ambient.Value = boundary.Parent;
+        }
+
+        private IUnitOfWorkScope BeginRoot(
+            UnitOfWorkOptions? options,
+            AmbientUnitOfWorkFrame? parentFrame)
         {
             DbConnection? connection = _connectionFactory();
 
@@ -74,7 +114,7 @@ namespace NetUnitOfWorkManager
 
             RootUnitOfWork root = RootUnitOfWork.Create(connection, options);
             root.AcquireScope();
-            _current.Value = root;
+            _ambient.Value = AmbientUnitOfWorkFrame.ForRoot(root, parentFrame);
             return new UnitOfWorkScope(root, SettleScope);
         }
 
@@ -109,9 +149,11 @@ namespace NetUnitOfWorkManager
             }
             finally
             {
-                if (ReferenceEquals(_current.Value, root))
+                AmbientUnitOfWorkFrame? currentFrame = _ambient.Value;
+
+                if (currentFrame != null && ReferenceEquals(currentFrame.Root, root))
                 {
-                    _current.Value = null;
+                    _ambient.Value = currentFrame.Parent;
                 }
             }
         }

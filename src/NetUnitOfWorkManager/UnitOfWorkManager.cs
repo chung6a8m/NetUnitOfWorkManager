@@ -57,6 +57,12 @@ namespace NetUnitOfWorkManager
             return new UnitOfWorkScope(root, SettleScope);
         }
 
+        /// <inheritdoc/>
+        public IDisposable Suppress()
+        {
+            throw new NotSupportedException("Ambient suppression has not been implemented yet.");
+        }
+
         private IUnitOfWorkScope BeginRoot(UnitOfWorkOptions? options)
         {
             DbConnection? connection = _connectionFactory();

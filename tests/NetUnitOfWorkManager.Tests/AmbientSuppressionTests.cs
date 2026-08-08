@@ -397,7 +397,7 @@ namespace NetUnitOfWorkManager.Tests
                 Assert.False(manager.HasCurrent);
                 suppression.Dispose();
                 Assert.Same(outerContext, manager.Current);
-            });
+            }, TestContext.Current.CancellationToken);
 
             Assert.False(manager.HasCurrent);
             suppression.Dispose();

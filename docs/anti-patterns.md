@@ -46,11 +46,77 @@ await scope.Db.Connection.ExecuteAsync(
 
 For raw ADO.NET, prefer `scope.Db.CreateCommand()` so transaction binding is automatic.
 
-## Beginning a competing transaction
+## Beginning a competing transaction on the borrowed connection
 
 Do not call `BeginTransaction()` on the borrowed connection. A Unit of Work already owns its provider transaction.
 
-If work requires an independent transaction, create a different `UnitOfWorkManager`/connection boundary explicitly rather than trying to nest `RequiresNew` semantics into v1.
+If work intentionally requires an independent Unit of Work, suppress the outer ambient root and explicitly call `Begin()` so the manager obtains a new connection:
+
+```csharp
+using (IUnitOfWorkScope outer = manager.Begin())
+{
+    using (manager.Suppress())
+    {
+        using (IUnitOfWorkScope independent = manager.Begin())
+        {
+            // Different connection and physical transaction.
+            independent.Complete();
+        }
+    }
+
+    outer.Complete();
+}
+```
+
+This is not a savepoint and not an implicit `RequiresNew` mode. `Suppress()` alone does not begin a transaction; the independent transaction exists only because `Begin()` is called inside the suppression region.
+
+## Using suppression for work that must be atomic with the outer transaction
+
+Do not suppress the outer Unit of Work for transactional outbox rows, domain-event rows, audit rows, or any write that must commit atomically with the business change:
+
+```csharp
+using (IUnitOfWorkScope outer = manager.Begin())
+{
+    SaveBusinessData(outer);
+
+    using (manager.Suppress())
+    using (IUnitOfWorkScope independent = manager.Begin())
+    {
+        SaveTransactionalOutboxRow(independent); // Wrong atomicity boundary.
+        independent.Complete();
+    }
+
+    outer.Rollback(); // The outbox row may already be committed.
+}
+```
+
+Keep atomic work in the same root transaction. Use suppression only when an independent commit/rollback boundary is actually intended.
+
+## Disposing suppression out of order
+
+Suppression scopes are stack disciplined. Do not dispose an outer token before an inner token:
+
+```csharp
+IDisposable first = manager.Suppress();
+IDisposable second = manager.Suppress();
+
+first.Dispose(); // Wrong; throws UnitOfWorkStateException.
+```
+
+The exception does not mutate ambient state. Dispose `second` first, then `first`. A second dispose after a token was successfully disposed is an idempotent no-op.
+
+## Disposing suppression while an independent root is active
+
+Do not restore an outer ambient root while an independent root created inside the suppression boundary is still active:
+
+```csharp
+IDisposable suppression = manager.Suppress();
+IUnitOfWorkScope independent = manager.Begin();
+
+suppression.Dispose(); // Wrong; throws UnitOfWorkStateException.
+```
+
+Settle the independent scope first. Its finalization returns the manager to the suppressed state; only then dispose the suppression token to restore the previous outer ambient frame.
 
 ## Running database operations in parallel
 
@@ -63,6 +129,8 @@ await Task.WhenAll(first, second); // Unsupported.
 ```
 
 One Unit of Work supports sequential database use. Await one operation before starting the next one.
+
+`Suppress()` flowing across `await` does not change this rule. Ambient flow and database-operation concurrency are separate concerns.
 
 ## Assuming nested scopes are savepoints
 

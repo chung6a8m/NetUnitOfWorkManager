@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Threading;
@@ -12,7 +13,8 @@ namespace NetUnitOfWorkManager
     public sealed class UnitOfWorkManager : IUnitOfWorkManager
     {
         private readonly Func<DbConnection> _connectionFactory;
-        private readonly AsyncLocal<RootUnitOfWork?> _current = new AsyncLocal<RootUnitOfWork?>();
+        private readonly AsyncLocal<AmbientUnitOfWorkFrame?> _ambient = new AsyncLocal<AmbientUnitOfWorkFrame?>();
+        private long _nextSuppressionBoundaryId;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="UnitOfWorkManager"/> class.
@@ -24,14 +26,14 @@ namespace NetUnitOfWorkManager
         }
 
         /// <inheritdoc/>
-        public bool HasCurrent => _current.Value != null;
+        public bool HasCurrent => _ambient.Value?.Root != null;
 
         /// <inheritdoc/>
         public IUnitOfWorkContext Current
         {
             get
             {
-                RootUnitOfWork? root = _current.Value;
+                RootUnitOfWork? root = _ambient.Value?.Root;
 
                 if (root == null)
                 {
@@ -45,11 +47,12 @@ namespace NetUnitOfWorkManager
         /// <inheritdoc/>
         public IUnitOfWorkScope Begin(UnitOfWorkOptions? options = null)
         {
-            RootUnitOfWork? root = _current.Value;
+            AmbientUnitOfWorkFrame? currentFrame = _ambient.Value;
+            RootUnitOfWork? root = currentFrame?.Root;
 
             if (root == null)
             {
-                return BeginRoot(options);
+                return BeginRoot(options, currentFrame);
             }
 
             ValidateNestedOptions(root, options);
@@ -57,7 +60,57 @@ namespace NetUnitOfWorkManager
             return new UnitOfWorkScope(root, SettleScope);
         }
 
-        private IUnitOfWorkScope BeginRoot(UnitOfWorkOptions? options)
+        /// <inheritdoc/>
+        public IDisposable Suppress()
+        {
+            long boundaryId = Interlocked.Increment(ref _nextSuppressionBoundaryId);
+
+            if (boundaryId <= 0)
+            {
+                throw new UnitOfWorkStateException("The ambient suppression boundary identity space has been exhausted.");
+            }
+
+            AmbientUnitOfWorkFrame boundary = AmbientUnitOfWorkFrame.ForSuppression(
+                boundaryId,
+                _ambient.Value);
+
+            _ambient.Value = boundary;
+            return new UnitOfWorkSuppression(this, boundary);
+        }
+
+        internal void RestoreSuppression(long boundaryId)
+        {
+            if (boundaryId <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(boundaryId));
+            }
+
+            AmbientUnitOfWorkFrame? currentFrame = _ambient.Value;
+
+            if (IsSuppressionBoundary(currentFrame, boundaryId))
+            {
+                _ambient.Value = currentFrame!.Parent;
+                return;
+            }
+
+            if (!ContainsSuppressionBoundary(currentFrame, boundaryId))
+            {
+                return;
+            }
+
+            if (currentFrame?.Root != null)
+            {
+                throw new UnitOfWorkStateException(
+                    "The suppression scope cannot be disposed while an independent Unit of Work started inside it is still active.");
+            }
+
+            throw new UnitOfWorkStateException(
+                "Suppression scopes must be disposed in LIFO order.");
+        }
+
+        private IUnitOfWorkScope BeginRoot(
+            UnitOfWorkOptions? options,
+            AmbientUnitOfWorkFrame? parentFrame)
         {
             DbConnection? connection = _connectionFactory();
 
@@ -68,7 +121,7 @@ namespace NetUnitOfWorkManager
 
             RootUnitOfWork root = RootUnitOfWork.Create(connection, options);
             root.AcquireScope();
-            _current.Value = root;
+            _ambient.Value = AmbientUnitOfWorkFrame.ForRoot(root, parentFrame);
             return new UnitOfWorkScope(root, SettleScope);
         }
 
@@ -103,11 +156,69 @@ namespace NetUnitOfWorkManager
             }
             finally
             {
-                if (ReferenceEquals(_current.Value, root))
-                {
-                    _current.Value = null;
-                }
+                _ambient.Value = RemoveRootFromAmbientChain(_ambient.Value, root);
             }
+        }
+
+        private static AmbientUnitOfWorkFrame? RemoveRootFromAmbientChain(
+            AmbientUnitOfWorkFrame? currentFrame,
+            RootUnitOfWork root)
+        {
+            if (currentFrame == null)
+            {
+                return null;
+            }
+
+            Stack<AmbientUnitOfWorkFrame> framesAboveRoot = new Stack<AmbientUnitOfWorkFrame>();
+            AmbientUnitOfWorkFrame? cursor = currentFrame;
+
+            while (cursor != null && !ReferenceEquals(cursor.Root, root))
+            {
+                framesAboveRoot.Push(cursor);
+                cursor = cursor.Parent;
+            }
+
+            if (cursor == null)
+            {
+                return currentFrame;
+            }
+
+            AmbientUnitOfWorkFrame? rebuilt = cursor.Parent;
+
+            while (framesAboveRoot.Count > 0)
+            {
+                rebuilt = framesAboveRoot.Pop().WithParent(rebuilt);
+            }
+
+            return rebuilt;
+        }
+
+        private static bool IsSuppressionBoundary(
+            AmbientUnitOfWorkFrame? frame,
+            long boundaryId)
+        {
+            return frame != null &&
+                frame.IsSuppressionBoundary &&
+                frame.SuppressionBoundaryId == boundaryId;
+        }
+
+        private static bool ContainsSuppressionBoundary(
+            AmbientUnitOfWorkFrame? currentFrame,
+            long boundaryId)
+        {
+            AmbientUnitOfWorkFrame? cursor = currentFrame;
+
+            while (cursor != null)
+            {
+                if (IsSuppressionBoundary(cursor, boundaryId))
+                {
+                    return true;
+                }
+
+                cursor = cursor.Parent;
+            }
+
+            return false;
         }
 
         private static string FormatIsolationLevel(IsolationLevel? isolationLevel)

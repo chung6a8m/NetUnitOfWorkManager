@@ -6,11 +6,11 @@ The library intentionally keeps transaction lifecycle synchronous (`Begin`, `Com
 
 ## Status
 
-The project is on the `1.0.0-preview.1` package line. P10 adds an executable prerelease closure gate that tests the produced nupkg in a real `.NET Framework 4.7.2` application after all unit, compatibility, SQL Server, Dapper, and RepoDb gates pass.
+The project is on the `1.0.0-preview.1` package line. P10 added an executable prerelease closure gate that tests the produced nupkg in a real `.NET Framework 4.7.2` application after all unit, compatibility, SQL Server, Dapper, and RepoDb gates pass.
 
-Stable `1.0.0` remains blocked by the D7 repository license decision even after the technical P10 verification succeeds.
+P11 adds ambient suppression as part of the planned v1 public contract. Stable `1.0.0` is intentionally deferred to P14, after P11-P13 are completed and remaining release blockers such as the repository license decision are closed.
 
-See [P10 prerelease verification](docs/prerelease-verification.md) for the closure procedure and evidence mapping.
+See [P10 prerelease verification](docs/prerelease-verification.md) and the [post-v1 development plan](docs/plans/20260808-001-netunitofworkmanager-post-v1.md).
 
 ## Compatibility
 
@@ -18,6 +18,7 @@ See [P10 prerelease verification](docs/prerelease-verification.md) for the closu
 - Minimum supported legacy runtime: .NET Framework 4.7.2+.
 - Modern .NET consumers are supported through `netstandard2.0` compatibility.
 - Unit of Work lifecycle is synchronous by design.
+- Ambient state flows through logical async execution by `AsyncLocal`.
 - Database use inside one Unit of Work must be sequential; parallel operations on the same connection/transaction are unsupported.
 
 See [Compatibility](docs/compatibility.md) for the release contract.
@@ -84,6 +85,52 @@ using (IUnitOfWorkScope outer = manager.Begin())
 
 An inner `Rollback()` or an abandoned inner scope marks the root Unit of Work rollback-only. The physical transaction is finalized only after all scopes settle.
 
+## Ambient suppression
+
+`Suppress()` temporarily hides the current ambient Unit of Work without committing, rolling back, or disposing it. Disposing the suppression token restores the exact previous ambient state.
+
+The three intended forms are:
+
+```text
+Begin()                    -> root or nested scope in the current transaction
+Suppress()                 -> no ambient Unit of Work
+Suppress() + Begin()       -> independent root transaction
+```
+
+Example:
+
+```csharp
+using (IUnitOfWorkScope outer = manager.Begin())
+{
+    IUnitOfWorkContext outerContext = manager.Current;
+
+    using (manager.Suppress())
+    {
+        // The outer root is hidden here.
+        // manager.HasCurrent == false
+
+        using (IUnitOfWorkScope independent = manager.Begin())
+        {
+            // Uses a different connection and physical transaction.
+            independent.Complete();
+        }
+
+        // The suppression boundary is still active here.
+        // manager.HasCurrent == false
+    }
+
+    // The exact outer root is visible again.
+    // ReferenceEquals(outerContext, manager.Current) == true
+    outer.Complete();
+}
+```
+
+Nested suppression restores in LIFO order. A suppression token cannot be disposed while an independent root created inside that suppression boundary is still active; misuse throws `UnitOfWorkStateException` without mutating ambient state.
+
+Suppression flows across `await` with `AsyncLocal`, but database operations on a given Unit of Work must still be sequential.
+
+Do **not** use suppression for transactional outbox/event rows or any write that must commit atomically with the outer business transaction. An independent root can commit even if the outer transaction later rolls back.
+
 ## Borrowed ownership contract
 
 `scope.Db.Connection` and `scope.Db.Transaction` are borrowed provider-native objects. The Unit of Work owns their lifecycle.
@@ -133,5 +180,7 @@ The v1 core intentionally does not provide:
 - savepoints or `RequiresNew` nested transactions;
 - wrappers around the complete ADO.NET object model;
 - ORM runtime dependencies.
+
+Ambient suppression is deliberately smaller than `RequiresNew`: `Suppress()` only controls ambient visibility. An independent transaction exists only when application code explicitly calls `Begin()` inside the suppression region.
 
 These boundaries keep the package truthful to the APIs available on `netstandard2.0` and .NET Framework 4.7.2+.

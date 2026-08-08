@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetUnitOfWorkManager.Tests"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetUnitOfWorkManager.Sample.Net472", "samples\NetUnitOfWorkManager.Sample.Net472\NetUnitOfWorkManager.Sample.Net472.csproj", "{F0F9F137-8F2F-454A-874A-E2608DC783F9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetUnitOfWorkManager.Sample.Dapper.Net472", "samples\NetUnitOfWorkManager.Sample.Dapper.Net472\NetUnitOfWorkManager.Sample.Dapper.Net472.csproj", "{D12242B7-FC45-4DFB-9EEA-A60D5D4582BB}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetUnitOfWorkManager.Sample.RepoDb.Net472", "samples\NetUnitOfWorkManager.Sample.RepoDb.Net472\NetUnitOfWorkManager.Sample.RepoDb.Net472.csproj", "{1C46C406-0E68-4176-AE8E-5953DCB0522A}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetUnitOfWorkManager.SqlServer.Tests", "tests\NetUnitOfWorkManager.SqlServer.Tests\NetUnitOfWorkManager.SqlServer.Tests.csproj", "{AEF01CA4-C9F8-40A8-B91D-139DDB35DCB3}"
@@ -30,6 +32,10 @@ Global
 		{F0F9F137-8F2F-454A-874A-E2608DC783F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F0F9F137-8F2F-454A-874A-E2608DC783F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F0F9F137-8F2F-454A-874A-E2608DC783F9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D12242B7-FC45-4DFB-9EEA-A60D5D4582BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D12242B7-FC45-4DFB-9EEA-A60D5D4582BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D12242B7-FC45-4DFB-9EEA-A60D5D4582BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D12242B7-FC45-4DFB-9EEA-A60D5D4582BB}.Release|Any CPU.Build.0 = Release|Any CPU
 		{1C46C406-0E68-4176-AE8E-5953DCB0522A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{1C46C406-0E68-4176-AE8E-5953DCB0522A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1C46C406-0E68-4176-AE8E-5953DCB0522A}.Release|Any CPU.ActiveCfg = Release|Any CPU

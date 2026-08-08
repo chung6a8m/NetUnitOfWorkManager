@@ -21,6 +21,10 @@ namespace NetUnitOfWorkManager.Sample.Net472
                 Run("nested complete", NestedComplete);
                 Run("inner rollback forces outer rollback", InnerRollbackForcesOuterRollback);
                 Run("async command inside synchronous UoW", AsyncCommandInsideSynchronousScope);
+                Run("suppression hides and restores outer root", SuppressionHidesAndRestoresOuterRoot);
+                Run("nested suppression restores in LIFO order", NestedSuppressionRestoresInLifoOrder);
+                Run("independent fake root inside suppression", IndependentRootInsideSuppression);
+                Run("suppression flows across async continuation", SuppressionFlowsAcrossAsyncContinuation);
 
                 Console.WriteLine("All .NET Framework 4.7.2 runtime scenarios passed.");
                 return 0;
@@ -149,6 +153,148 @@ namespace NetUnitOfWorkManager.Sample.Net472
             }
         }
 
+        private static void SuppressionHidesAndRestoresOuterRoot()
+        {
+            ProbeDbConnection? connection = null;
+            UnitOfWorkManager manager = new UnitOfWorkManager(() => connection = new ProbeDbConnection());
+
+            using (IUnitOfWorkScope outer = manager.Begin())
+            {
+                IUnitOfWorkContext outerContext = manager.Current;
+                ProbeDbTransaction outerTransaction = RequireTransaction(RequireConnection(connection).LastTransaction);
+
+                using (manager.Suppress())
+                {
+                    Expect(!manager.HasCurrent, "Suppression must hide the outer ambient root.");
+                    ExpectThrows<UnitOfWorkStateException>(
+                        () => { IUnitOfWorkContext _ = manager.Current; },
+                        "Current must throw while the ambient root is suppressed.");
+                    Expect(outerTransaction.CommitCallCount == 0, "Suppress() must not commit the outer transaction.");
+                    Expect(outerTransaction.RollbackCallCount == 0, "Suppress() must not rollback the outer transaction.");
+                }
+
+                Expect(manager.HasCurrent, "Disposing suppression must restore ambient visibility.");
+                Expect(ReferenceEquals(manager.Current, outerContext), "Suppression must restore the exact outer root context.");
+                outer.Rollback();
+            }
+        }
+
+        private static void NestedSuppressionRestoresInLifoOrder()
+        {
+            ProbeDbConnection? connection = null;
+            UnitOfWorkManager manager = new UnitOfWorkManager(() => connection = new ProbeDbConnection());
+
+            using (IUnitOfWorkScope outer = manager.Begin())
+            {
+                IUnitOfWorkContext outerContext = manager.Current;
+
+                using (manager.Suppress())
+                {
+                    Expect(!manager.HasCurrent, "First suppression must hide the outer root.");
+
+                    using (manager.Suppress())
+                    {
+                        Expect(!manager.HasCurrent, "Nested suppression must keep the outer root hidden.");
+                    }
+
+                    Expect(!manager.HasCurrent, "Disposing nested suppression must restore the first suppression boundary.");
+                }
+
+                Expect(ReferenceEquals(manager.Current, outerContext), "LIFO suppression disposal must restore the exact outer root.");
+                outer.Rollback();
+            }
+        }
+
+        private static void IndependentRootInsideSuppression()
+        {
+            ProbeDbConnection? outerConnection = null;
+            ProbeDbConnection? independentConnection = null;
+            int connectionCount = 0;
+            UnitOfWorkManager manager = new UnitOfWorkManager(() =>
+            {
+                ProbeDbConnection created = new ProbeDbConnection();
+                if (connectionCount++ == 0)
+                {
+                    outerConnection = created;
+                }
+                else
+                {
+                    independentConnection = created;
+                }
+
+                return created;
+            });
+
+            using (IUnitOfWorkScope outer = manager.Begin(new UnitOfWorkOptions(IsolationLevel.Serializable)))
+            {
+                IUnitOfWorkContext outerContext = manager.Current;
+                ProbeDbTransaction outerTransaction = RequireTransaction(RequireConnection(outerConnection).LastTransaction);
+
+                using (manager.Suppress())
+                {
+                    using (IUnitOfWorkScope independent = manager.Begin(new UnitOfWorkOptions(IsolationLevel.ReadCommitted)))
+                    {
+                        ProbeDbConnection currentIndependentConnection = RequireConnection(independentConnection);
+                        ProbeDbTransaction independentTransaction = RequireTransaction(currentIndependentConnection.LastTransaction);
+
+                        Expect(!ReferenceEquals(outer.Db.Connection, independent.Db.Connection), "Independent root must use a different physical connection.");
+                        Expect(!ReferenceEquals(outer.Db.Transaction, independent.Db.Transaction), "Independent root must use a different physical transaction.");
+                        Expect(independentTransaction.IsolationLevel == IsolationLevel.ReadCommitted, "Independent root may use a different isolation level.");
+
+                        independent.Complete();
+                        Expect(independentTransaction.CommitCallCount == 1, "Independent root must commit independently.");
+                    }
+
+                    Expect(!manager.HasCurrent, "Independent root finalization must return to the suppression boundary.");
+                }
+
+                Expect(ReferenceEquals(manager.Current, outerContext), "Disposing suppression must restore the exact outer context.");
+                outer.Rollback();
+                Expect(outerTransaction.RollbackCallCount == 1, "Outer root must still be able to rollback after independent commit.");
+            }
+        }
+
+        private static void SuppressionFlowsAcrossAsyncContinuation()
+        {
+            SuppressionFlowsAcrossAsyncContinuationAsync().GetAwaiter().GetResult();
+        }
+
+        private static async Task SuppressionFlowsAcrossAsyncContinuationAsync()
+        {
+            ProbeDbConnection? connection = null;
+            UnitOfWorkManager manager = new UnitOfWorkManager(() => connection = new ProbeDbConnection());
+
+            using (IUnitOfWorkScope outer = manager.Begin())
+            {
+                IUnitOfWorkContext outerContext = manager.Current;
+
+                using (manager.Suppress())
+                {
+                    Expect(!manager.HasCurrent, "Suppression must be visible before the async continuation.");
+                    await Task.Yield();
+                    Expect(!manager.HasCurrent, "Suppression must flow across await via AsyncLocal semantics.");
+
+                    using (IUnitOfWorkScope independent = manager.Begin())
+                    {
+                        using (DbCommand command = independent.Db.CreateCommand())
+                        {
+                            int affectedRows = await command.ExecuteNonQueryAsync(CancellationToken.None);
+                            Expect(affectedRows == 1, "The independent provider async command should execute successfully.");
+                        }
+
+                        independent.Complete();
+                    }
+
+                    Expect(!manager.HasCurrent, "Independent async root finalization must return to suppressed state.");
+                    await Task.Yield();
+                    Expect(!manager.HasCurrent, "Suppressed state must remain stable across a later continuation.");
+                }
+
+                Expect(ReferenceEquals(manager.Current, outerContext), "Outer ambient root must be restored after async suppression cleanup.");
+                outer.Complete();
+            }
+        }
+
         private static void Run(string name, Action scenario)
         {
             scenario();
@@ -163,6 +309,21 @@ namespace NetUnitOfWorkManager.Sample.Net472
         private static ProbeDbTransaction RequireTransaction(ProbeDbTransaction? transaction)
         {
             return transaction ?? throw new InvalidOperationException("The provider transaction was not created.");
+        }
+
+        private static void ExpectThrows<TException>(Action action, string message)
+            where TException : Exception
+        {
+            try
+            {
+                action();
+            }
+            catch (TException)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(message);
         }
 
         private static void Expect(bool condition, string message)

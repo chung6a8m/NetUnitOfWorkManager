@@ -1,20 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using NetUnitOfWorkManager.Sample.RepoDb.Net472.Infrastructure;
-using NetUnitOfWorkManager.Sample.RepoDb.Net472.Models;
-using NetUnitOfWorkManager.Sample.RepoDb.Net472.Services;
+using NetUnitOfWorkManager.Sample.Dapper.Net472.Infrastructure;
+using NetUnitOfWorkManager.Sample.Dapper.Net472.Models;
+using NetUnitOfWorkManager.Sample.Dapper.Net472.Services;
 
-namespace NetUnitOfWorkManager.Sample.RepoDb.Net472
+namespace NetUnitOfWorkManager.Sample.Dapper.Net472
 {
     public sealed class SampleRunner
     {
-        private readonly SqlServerSampleDatabase _database;
-        private readonly CounterApplicationService _counterService;
+        private readonly SampleDatabase _database;
+        private readonly CounterService _counterService;
 
-        public SampleRunner(
-            SqlServerSampleDatabase database,
-            CounterApplicationService counterService)
+        public SampleRunner(SampleDatabase database, CounterService counterService)
         {
             _database = database;
             _counterService = counterService;
@@ -23,38 +21,42 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472
         public void Run()
         {
             _database.EnsureCreated();
-            _database.Reset();
 
-            Console.WriteLine("NetUnitOfWorkManager + RepoDb + Microsoft.Extensions.DependencyInjection");
+            Console.WriteLine("NetUnitOfWorkManager + Dapper + Microsoft.Extensions.DependencyInjection");
             Console.WriteLine("Target framework: " + AppDomain.CurrentDomain.SetupInformation.TargetFrameworkName);
             Console.WriteLine();
 
-            Console.WriteLine("Scenario 1: nested scopes complete -> commit");
-            _counterService.CommitPair(10, 20);
-            IReadOnlyList<CounterItem> committedItems = _counterService.List();
-            PrintItems(committedItems);
-            ExpectValues(committedItems, 10, 20);
-            Console.WriteLine("PASS: both rows were committed.");
-            Console.WriteLine();
-
-            Console.WriteLine("Scenario 2: inner scope is abandoned -> rollback-only");
-            _counterService.RollbackPair(30, 40);
-            IReadOnlyList<CounterItem> afterRollbackItems = _counterService.List();
-            PrintItems(afterRollbackItems);
-            ExpectValues(afterRollbackItems, 10, 20);
-            Console.WriteLine("PASS: rollback removed both rows from the second pair.");
+            _database.Reset();
+            Console.WriteLine("Scenario 1: single UoW commit");
+            _counterService.CommitSingle(10);
+            ExpectValues(_counterService.List(), 10);
+            Console.WriteLine("PASS: committed row is visible.");
             Console.WriteLine();
 
             _database.Reset();
-            Console.WriteLine("Scenario 3: suppression creates an independent root transaction");
+            Console.WriteLine("Scenario 2: explicit rollback");
+            _counterService.RollbackSingle(20);
+            ExpectValues(_counterService.List());
+            Console.WriteLine("PASS: rolled-back row is not visible.");
+            Console.WriteLine();
+
+            _database.Reset();
+            Console.WriteLine("Scenario 3: nested service scopes reuse one physical transaction");
+            _counterService.CommitNestedPair(30, 40);
+            ExpectValues(_counterService.List(), 30, 40);
+            Console.WriteLine("PASS: nested rows committed through one physical root transaction.");
+            Console.WriteLine();
+
+            _database.Reset();
+            Console.WriteLine("Scenario 4: suppression creates an independent root transaction");
             _counterService.CommitIndependentInsideSuppressionThenRollbackOuter(50, 60);
             IReadOnlyList<CounterItem> afterSuppression = _counterService.List();
             PrintItems(afterSuppression);
             ExpectValues(afterSuppression, 60);
-            Console.WriteLine("PASS: independent RepoDb commit survived the outer rollback.");
+            Console.WriteLine("PASS: independent inner commit survived the outer rollback.");
             Console.WriteLine();
 
-            Console.WriteLine("All RepoDb net472 sample scenarios passed.");
+            Console.WriteLine("All Dapper net472 sample scenarios passed.");
         }
 
         private static void PrintItems(IReadOnlyList<CounterItem> items)
@@ -76,7 +78,6 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472
             params int[] expectedValues)
         {
             int[] actualValues = items.Select(item => item.Value).ToArray();
-
             if (!actualValues.SequenceEqual(expectedValues))
             {
                 throw new InvalidOperationException(

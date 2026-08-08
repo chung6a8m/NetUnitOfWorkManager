@@ -2,14 +2,14 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
-using NetUnitOfWorkManager.Sample.RepoDb.Net472.Models;
-using NetUnitOfWorkManager.Sample.RepoDb.Net472.Repositories;
+using NetUnitOfWorkManager.Sample.Dapper.Net472.Models;
+using NetUnitOfWorkManager.Sample.Dapper.Net472.Repositories;
 
-namespace NetUnitOfWorkManager.Sample.RepoDb.Net472.Services
+namespace NetUnitOfWorkManager.Sample.Dapper.Net472.Services
 {
-    public sealed class CounterApplicationService
+    public sealed class CounterService
     {
-        private static readonly global::NetUnitOfWorkManager.UnitOfWorkOptions Options =
+        private static readonly global::NetUnitOfWorkManager.UnitOfWorkOptions SerializableOptions =
             new global::NetUnitOfWorkManager.UnitOfWorkOptions(IsolationLevel.Serializable);
 
         private static readonly global::NetUnitOfWorkManager.UnitOfWorkOptions IndependentOptions =
@@ -17,22 +17,19 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472.Services
 
         private readonly global::NetUnitOfWorkManager.IUnitOfWorkManager _unitOfWorkManager;
         private readonly ICounterRepository _counterRepository;
-        private readonly NestedCounterService _nestedCounterService;
 
-        public CounterApplicationService(
+        public CounterService(
             global::NetUnitOfWorkManager.IUnitOfWorkManager unitOfWorkManager,
-            ICounterRepository counterRepository,
-            NestedCounterService nestedCounterService)
+            ICounterRepository counterRepository)
         {
             _unitOfWorkManager = unitOfWorkManager;
             _counterRepository = counterRepository;
-            _nestedCounterService = nestedCounterService;
         }
 
         public IReadOnlyList<CounterItem> List()
         {
             using (global::NetUnitOfWorkManager.IUnitOfWorkScope scope =
-                _unitOfWorkManager.Begin(Options))
+                _unitOfWorkManager.Begin(SerializableOptions))
             {
                 IReadOnlyList<CounterItem> items = _counterRepository.List();
                 scope.Complete();
@@ -40,25 +37,50 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472.Services
             }
         }
 
-        public void CommitPair(int outerValue, int innerValue)
+        public void CommitSingle(int value)
         {
             using (global::NetUnitOfWorkManager.IUnitOfWorkScope scope =
-                _unitOfWorkManager.Begin(Options))
+                _unitOfWorkManager.Begin(SerializableOptions))
             {
-                _counterRepository.Insert(outerValue);
-                _nestedCounterService.InsertAndComplete(innerValue, Options);
+                _counterRepository.Insert(value);
                 scope.Complete();
             }
         }
 
-        public void RollbackPair(int outerValue, int innerValue)
+        public void RollbackSingle(int value)
         {
             using (global::NetUnitOfWorkManager.IUnitOfWorkScope scope =
-                _unitOfWorkManager.Begin(Options))
+                _unitOfWorkManager.Begin(SerializableOptions))
             {
+                _counterRepository.Insert(value);
+                scope.Rollback();
+            }
+        }
+
+        public void CommitNestedPair(int outerValue, int innerValue)
+        {
+            using (global::NetUnitOfWorkManager.IUnitOfWorkScope outer =
+                _unitOfWorkManager.Begin(SerializableOptions))
+            {
+                DbConnection outerConnection = outer.Db.Connection;
+                DbTransaction outerTransaction = outer.Db.Transaction;
                 _counterRepository.Insert(outerValue);
-                _nestedCounterService.InsertWithoutCompleting(innerValue, Options);
-                scope.Complete();
+
+                using (global::NetUnitOfWorkManager.IUnitOfWorkScope inner =
+                    _unitOfWorkManager.Begin(SerializableOptions))
+                {
+                    Expect(
+                        ReferenceEquals(outerConnection, inner.Db.Connection),
+                        "Nested Dapper scope must reuse the outer physical connection.");
+                    Expect(
+                        ReferenceEquals(outerTransaction, inner.Db.Transaction),
+                        "Nested Dapper scope must reuse the outer physical transaction.");
+
+                    _counterRepository.Insert(innerValue);
+                    inner.Complete();
+                }
+
+                outer.Complete();
             }
         }
 
@@ -67,24 +89,24 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472.Services
             int independentValue)
         {
             using (global::NetUnitOfWorkManager.IUnitOfWorkScope outer =
-                _unitOfWorkManager.Begin(Options))
+                _unitOfWorkManager.Begin(SerializableOptions))
             {
                 DbConnection outerConnection = outer.Db.Connection;
                 DbTransaction outerTransaction = outer.Db.Transaction;
 
                 using (_unitOfWorkManager.Suppress())
                 {
-                    Expect(!_unitOfWorkManager.HasCurrent, "Suppression must hide the outer RepoDb root.");
+                    Expect(!_unitOfWorkManager.HasCurrent, "Suppression must hide the outer Dapper root.");
 
                     using (global::NetUnitOfWorkManager.IUnitOfWorkScope independent =
                         _unitOfWorkManager.Begin(IndependentOptions))
                     {
                         Expect(
                             !ReferenceEquals(outerConnection, independent.Db.Connection),
-                            "Suppress() + Begin() must create a different RepoDb connection.");
+                            "Suppress() + Begin() must create a different physical connection.");
                         Expect(
                             !ReferenceEquals(outerTransaction, independent.Db.Transaction),
-                            "Suppress() + Begin() must create a different RepoDb transaction.");
+                            "Suppress() + Begin() must create a different physical transaction.");
 
                         _counterRepository.Insert(independentValue);
                         independent.Complete();
@@ -92,16 +114,16 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472.Services
 
                     Expect(
                         !_unitOfWorkManager.HasCurrent,
-                        "After independent RepoDb root finalization the suppression boundary must remain active.");
+                        "After independent root finalization the suppression boundary must remain active.");
                 }
 
-                Expect(_unitOfWorkManager.HasCurrent, "Disposing suppression must restore the outer RepoDb root.");
+                Expect(_unitOfWorkManager.HasCurrent, "Disposing suppression must restore the outer root.");
                 Expect(
                     ReferenceEquals(outerConnection, _unitOfWorkManager.Current.Db.Connection),
-                    "Suppression must restore the exact outer RepoDb connection.");
+                    "Suppression must restore the exact outer connection.");
                 Expect(
                     ReferenceEquals(outerTransaction, _unitOfWorkManager.Current.Db.Transaction),
-                    "Suppression must restore the exact outer RepoDb transaction.");
+                    "Suppression must restore the exact outer transaction.");
 
                 _counterRepository.Insert(outerValue);
                 outer.Rollback();

@@ -1,4 +1,6 @@
-﻿namespace NetUnitOfWorkManager
+﻿using System;
+
+namespace NetUnitOfWorkManager
 {
     /// <summary>
     /// Defines the ambient Unit of Work manager contract.
@@ -21,5 +23,11 @@
         /// <param name="options">Optional transaction options.</param>
         /// <returns>A scope token representing the started Unit of Work scope.</returns>
         IUnitOfWorkScope Begin(UnitOfWorkOptions? options = null);
+
+        /// <summary>
+        /// Temporarily suppresses visibility of the current ambient Unit of Work.
+        /// </summary>
+        /// <returns>A token that restores the previous ambient state when disposed.</returns>
+        IDisposable Suppress();
     }
 }

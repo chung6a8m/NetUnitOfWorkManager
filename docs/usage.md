@@ -77,6 +77,61 @@ The inner `Complete()` only settles the inner scope. It does not commit the phys
 
 If an inner scope calls `Rollback()` or is disposed without `Complete()`/`Rollback()`, the root becomes rollback-only. A later outer `Complete()` cannot turn that transaction back into a commit.
 
+## Ambient suppression
+
+`Suppress()` temporarily hides the current ambient Unit of Work in the current logical execution flow. Suppression is an ambient visibility primitive only: creating or disposing a suppression token does not open a connection, begin a transaction, commit, rollback, or dispose the hidden root.
+
+The three intended forms are:
+
+```text
+Begin()                    -> root or nested scope in the current transaction
+Suppress()                 -> no ambient Unit of Work
+Suppress() + Begin()       -> independent root transaction
+```
+
+A `Begin()` inside a suppression region cannot see the outer root, so it asks the connection factory for a new connection and starts a different physical transaction. That independent root can also request a different isolation level:
+
+```csharp
+using System.Data;
+
+using (IUnitOfWorkScope outer = manager.Begin(
+    new UnitOfWorkOptions(IsolationLevel.Serializable)))
+{
+    IUnitOfWorkContext outerContext = manager.Current;
+
+    using (manager.Suppress())
+    {
+        // No ambient root is visible here.
+        // manager.HasCurrent == false
+
+        using (IUnitOfWorkScope independent = manager.Begin(
+            new UnitOfWorkOptions(IsolationLevel.ReadCommitted)))
+        {
+            // independent.Db owns a different connection and transaction.
+            independent.Complete();
+        }
+
+        // Finalizing the independent root returns to the suppression boundary.
+        // manager.HasCurrent == false
+    }
+
+    // Disposing the suppression token restores the exact outer root object.
+    // ReferenceEquals(outerContext, manager.Current) == true
+    outer.Complete();
+}
+```
+
+Suppression boundaries are stack disciplined:
+
+- nested suppression must be disposed in LIFO order;
+- disposing a token twice after a successful dispose is an idempotent no-op;
+- disposing an outer suppression token before an inner suppression token throws `UnitOfWorkStateException` without changing ambient state;
+- disposing a suppression token while an independent root created inside it is still active throws `UnitOfWorkStateException` without orphaning that transaction.
+
+Suppression and restoration flow across `await` through `AsyncLocal`. This does not make a connection or transaction safe for parallel operations: database use inside each Unit of Work remains sequential-only.
+
+Do not use suppression for a transactional outbox, event row, audit row, or any other write that must commit atomically with the outer business transaction. `Suppress() + Begin()` creates an independent transaction, so the inner work can commit even if the outer transaction later rolls back.
+
 ## Isolation level
 
 `UnitOfWorkOptions` can request an isolation level for the root transaction:
@@ -93,6 +148,8 @@ using (IUnitOfWorkScope scope = manager.Begin(
 ```
 
 Nested scopes must use a compatible option set. A nested request with a different isolation level throws `UnitOfWorkStateException` rather than silently changing the root transaction.
+
+A root created by `Begin()` inside a suppression region is not nested with the hidden outer root and may use a different isolation level.
 
 ## Async provider commands inside a synchronous Unit of Work
 
@@ -187,6 +244,26 @@ using (IUnitOfWorkScope scope = manager.Begin())
 
     // If PerformWork throws, Dispose() settles this scope as abandoned.
     scope.Complete();
+}
+```
+
+The same normal `using` cleanup restores ambient state when code inside a suppression region throws:
+
+```csharp
+using (IUnitOfWorkScope outer = manager.Begin())
+{
+    try
+    {
+        using (manager.Suppress())
+        {
+            ThrowingOperation();
+        }
+    }
+    catch
+    {
+        // The outer Unit of Work is visible again here.
+        throw;
+    }
 }
 ```
 

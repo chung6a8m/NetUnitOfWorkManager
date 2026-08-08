@@ -94,9 +94,9 @@ jobs:
         run: ./scripts/verify-net472.ps1
 
   sqlserver-integration:
-    name: SQL Server + Dapper + RepoDb
+    name: P13 production hardening
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -146,9 +146,9 @@ jobs:
           'NETUOW_SQLSERVER_CONNECTION_STRING=Server=(localdb)\MSSQLLocalDB;Initial Catalog=tempdb;Integrated Security=true;TrustServerCertificate=true' |
               Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Verify SQL Server integrations
+      - name: Verify P13 hardening gate
         shell: pwsh
-        run: ./scripts/verify-sqlserver.ps1
+        run: ./scripts/verify-hardening.ps1
 
   pack:
     name: Pack and validate NuGet package

@@ -93,7 +93,6 @@ namespace NetUnitOfWorkManager.Sample.Dapper.Net472.Services
             {
                 DbConnection outerConnection = outer.Db.Connection;
                 DbTransaction outerTransaction = outer.Db.Transaction;
-                _counterRepository.Insert(outerValue);
 
                 using (_unitOfWorkManager.Suppress())
                 {
@@ -126,6 +125,7 @@ namespace NetUnitOfWorkManager.Sample.Dapper.Net472.Services
                     ReferenceEquals(outerTransaction, _unitOfWorkManager.Current.Db.Transaction),
                     "Suppression must restore the exact outer transaction.");
 
+                _counterRepository.Insert(outerValue);
                 outer.Rollback();
             }
         }

@@ -74,14 +74,14 @@ Outer service insert `30`; nested scope insert `40` nhưng thoát mà không `Co
 Sample reset bảng rồi chạy:
 
 ```text
-outer root (Serializable) inserts 50
+outer root (Serializable) starts
   -> Suppress(): no ambient Unit of Work
       -> Begin(ReadCommitted): independent root inserts 60 and commits
   -> exact outer root is restored
-outer root rolls back
+outer root inserts 50 and rolls back
 ```
 
-Runner xác nhận chỉ còn giá trị `60`. Điều này chứng minh independent inner commit survives outer rollback, đồng thời connection và transaction của independent root khác outer root.
+Outer write được thực hiện sau independent commit để sample không tạo lock contention giả tạo giữa hai physical transactions trên cùng bảng. Runner xác nhận chỉ còn giá trị `60`. Điều này chứng minh independent inner commit survives outer rollback, đồng thời connection và transaction của independent root khác outer root.
 
 Ba trạng thái cần phân biệt:
 

@@ -1,6 +1,6 @@
 ﻿# NetUnitOfWorkManager.Sample.RepoDb.Net472
 
-Console sample chạy trên **.NET Framework 4.7.2** và mô phỏng luồng transaction của sample RepoDb Minimal API trong `UnitOfWorkManager`, nhưng dùng API hiện tại của `NetUnitOfWorkManager`.
+Console reference sample chạy trên **.NET Framework 4.7.2** và minh họa RepoDb dùng public Unit of Work contract, nested scopes và Ambient suppression.
 
 ## Thành phần
 
@@ -12,7 +12,13 @@ Console sample chạy trên **.NET Framework 4.7.2** và mô phỏng luồng tra
 - `ProjectReference` tới `src/NetUnitOfWorkManager`.
 - SQL Server connection string lấy từ biến môi trường `NETUOW_SQLSERVER_CONNECTION_STRING`.
 
-RepoDb nhận trực tiếp `UnitOfWorkDbSession.Connection` và `UnitOfWorkDbSession.Transaction`, vì vậy các câu lệnh repository chạy trong đúng transaction do `NetUnitOfWorkManager` quản lý.
+Project reference của sample:
+
+```xml
+<ProjectReference Include="../../src/NetUnitOfWorkManager/NetUnitOfWorkManager.csproj" />
+```
+
+RepoDb nhận trực tiếp `UnitOfWorkDbSession.Connection` và `UnitOfWorkDbSession.Transaction`, vì vậy các câu lệnh repository chạy trong đúng transaction do `NetUnitOfWorkManager` quản lý. Repository không cache, commit, rollback hoặc dispose borrowed connection/transaction.
 
 ## RepoDb attribute mapping
 
@@ -34,29 +40,17 @@ Repository dùng các entity operation của RepoDb thay cho raw SQL:
 
 - `Insert<CounterItem, long>()` lấy tên bảng từ `[Map]` và nhận biết cột identity qua `[Identity]`.
 - `QueryAll<CounterItem>()` lấy tên bảng từ `[Map]` và sắp xếp theo `Id`.
-- Cả hai operation đều nhận `transaction: db.Transaction`, nên RepoDb vẫn tham gia đúng physical transaction do `NetUnitOfWorkManager` quản lý.
+- Cả hai operation đều nhận `transaction: db.Transaction`, nên RepoDb tham gia đúng physical transaction do Unit of Work quản lý.
 
 ## Chuẩn bị SQL Server
-
-PowerShell:
 
 ```powershell
 $env:NETUOW_SQLSERVER_CONNECTION_STRING = "Server=localhost;Database=NetUnitOfWorkManager;Integrated Security=True;TrustServerCertificate=True"
 ```
 
-Connection string phải trỏ tới database đã tồn tại và tài khoản cần quyền tạo bảng, đọc và ghi dữ liệu.
-
-Sample tự tạo bảng sau nếu chưa tồn tại:
-
-```text
-[dbo].[NetUnitOfWorkCounter]
-```
-
-Để kết quả mỗi lần chạy dễ kiểm chứng, sample xóa dữ liệu trong **chính bảng sample này** trước khi chạy các scenario.
+Connection string phải trỏ tới database đã tồn tại và tài khoản cần quyền tạo bảng, đọc và ghi dữ liệu. Sample tự tạo `[dbo].[NetUnitOfWorkCounter]` nếu chưa tồn tại.
 
 ## Chạy sample
-
-Từ thư mục gốc repository:
 
 ```powershell
 dotnet restore .\samples\NetUnitOfWorkManager.Sample.RepoDb.Net472\NetUnitOfWorkManager.Sample.RepoDb.Net472.csproj
@@ -65,20 +59,38 @@ dotnet run --project .\samples\NetUnitOfWorkManager.Sample.RepoDb.Net472\NetUnit
 
 Chạy trên Windows có .NET Framework 4.7.2+.
 
-## Scenario 1 - nested commit
+## Scenarios
 
-1. Outer Unit of Work insert `10`.
-2. Nested service mở Unit of Work mới, insert `20`, rồi `Complete()`.
-3. Nested scope dùng cùng physical connection/transaction với outer scope.
-4. Outer scope `Complete()`.
-5. Hai dòng `10`, `20` được commit.
+### 1. Nested commit
 
-## Scenario 2 - nested rollback-only
+Outer service insert `10`; nested service mở nested scope, insert `20`, rồi `Complete()`. Hai scope dùng cùng physical connection/transaction và outer `Complete()` commit cả hai dòng.
 
-1. Outer Unit of Work insert `30`.
-2. Nested service mở Unit of Work mới, insert `40`, nhưng thoát scope mà không `Complete()`.
-3. Nested scope bị xem là abandoned và đánh dấu root Unit of Work rollback-only.
-4. Outer scope vẫn gọi `Complete()`.
-5. Physical transaction rollback, nên `30` và `40` đều không được lưu.
+### 2. Nested rollback-only
 
-Kết quả cuối cùng vẫn chỉ còn hai giá trị từ scenario commit: `10`, `20`.
+Outer service insert `30`; nested scope insert `40` nhưng thoát mà không `Complete()`. Root bị đánh dấu rollback-only nên outer `Complete()` không thể commit cặp thứ hai.
+
+### 3. Ambient suppression + independent root
+
+Sample reset bảng rồi chạy:
+
+```text
+outer root (Serializable) inserts 50
+  -> Suppress(): no ambient Unit of Work
+      -> Begin(ReadCommitted): independent root inserts 60 and commits
+  -> exact outer root is restored
+outer root rolls back
+```
+
+Runner xác nhận chỉ còn giá trị `60`. Điều này chứng minh independent inner commit survives outer rollback, đồng thời connection và transaction của independent root khác outer root.
+
+Ba trạng thái cần phân biệt:
+
+```text
+Begin()                    -> root hoặc nested scope hiện tại
+Suppress()                 -> no ambient Unit of Work
+Suppress() + Begin()       -> independent root transaction
+```
+
+Không dùng suppression cho outbox/event row hoặc dữ liệu khác cần atomic commit cùng outer business transaction.
+
+Mọi invariant failure đều throw để process exit non-zero.

@@ -45,6 +45,15 @@ namespace NetUnitOfWorkManager.Sample.RepoDb.Net472
             Console.WriteLine("PASS: rollback removed both rows from the second pair.");
             Console.WriteLine();
 
+            _database.Reset();
+            Console.WriteLine("Scenario 3: suppression creates an independent root transaction");
+            _counterService.CommitIndependentInsideSuppressionThenRollbackOuter(50, 60);
+            IReadOnlyList<CounterItem> afterSuppression = _counterService.List();
+            PrintItems(afterSuppression);
+            ExpectValues(afterSuppression, 60);
+            Console.WriteLine("PASS: independent RepoDb commit survived the outer rollback.");
+            Console.WriteLine();
+
             Console.WriteLine("All RepoDb net472 sample scenarios passed.");
         }
 

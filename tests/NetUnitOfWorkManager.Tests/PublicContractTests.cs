@@ -98,6 +98,18 @@ namespace NetUnitOfWorkManager.Tests
         }
 
         [Fact]
+        public void Suppress_PublicApi_Returns_IDisposable()
+        {
+            MethodInfo? suppress = typeof(IUnitOfWorkManager).GetMethod(
+                "Suppress",
+                BindingFlags.Public | BindingFlags.Instance);
+
+            Assert.NotNull(suppress);
+            Assert.Empty(suppress.GetParameters());
+            Assert.Equal(typeof(IDisposable), suppress.ReturnType);
+        }
+
+        [Fact]
         public void Manager_PublicApi_DoesNotExposeClearCurrent()
         {
             bool exposesClearCurrent = typeof(IUnitOfWorkManager)

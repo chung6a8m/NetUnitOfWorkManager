@@ -259,13 +259,13 @@ namespace NetUnitOfWorkManager.Tests
             IUnitOfWorkContext outerContext = manager.Current;
             InvalidOperationException expected = new InvalidOperationException("boom");
 
-            InvalidOperationException thrown = Assert.Throws<InvalidOperationException>(() =>
+            InvalidOperationException thrown = Assert.Throws<InvalidOperationException>((Action)(() =>
             {
                 using (manager.Suppress())
                 {
                     throw expected;
                 }
-            });
+            }));
 
             Assert.Same(expected, thrown);
             Assert.Same(outerContext, manager.Current);

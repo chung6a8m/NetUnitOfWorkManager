@@ -46,5 +46,15 @@ namespace NetUnitOfWorkManager.Internal
 
             return new AmbientUnitOfWorkFrame(null, suppressionBoundaryId, parent);
         }
+
+        internal AmbientUnitOfWorkFrame WithParent(AmbientUnitOfWorkFrame? parent)
+        {
+            if (ReferenceEquals(Parent, parent))
+            {
+                return this;
+            }
+
+            return new AmbientUnitOfWorkFrame(Root, SuppressionBoundaryId, parent);
+        }
     }
 }
